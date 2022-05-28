@@ -6,6 +6,8 @@ import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
 
+import time
+start = time.time()
 usage = """
 Python script for OpenTopography Raster Visualization products.
 This script can be called using its class object/methods or as a CLI. 
@@ -64,27 +66,28 @@ class RasterViz(object):
     See individual methods for further descriptions.
 
     TODO
-        - make output .png, .kmz formatting options
-        - add shadows to color-relief maps?
         - test scaling of outputs with lat/long coord system GeoTIFFs
     """
     def __init__(self, dem, make_png=False, make_kmz=False, *args, **kwargs):
         # prefix to run commands in docker image
         pwd = "%cd%" if sys.platform == "win32" else "$(pwd)"
-        # docker run command string for osgeo/gdal container
+        # docker run string to call a command in the osgeo/gdal container
         self.drun = f"docker run -v {pwd}:/data osgeo/gdal "
         # docker path for mounted pwd volume
         self.dp = "/data/"
+        # path to imagemagick
+        self.magick_path = "magick"
         # the input DEM path
         self.dem = dem
         # used as prefix for all output filenames
         self.dem_name = os.path.basename(self.dem).split('.')[0]
         # projection of DEM
         self.proj = self.get_projection()
+        self.extent = self.get_extent()
         # determine if we will make png/kmz files after making GeoTIFF
         self.make_png = make_png
         self.make_kmz = make_kmz
-        # coordinate system to use for visualizations (e.g. PNG)
+        # coordinate system to use for non-geodata visualization (i.e. PNG)
         self.viz_srs = "EPSG:3857"
         # dict mapping gdal format shortnames to file extension name
         self.extension_dict = {"GTiff": ".tif",
@@ -98,9 +101,23 @@ class RasterViz(object):
                           "aspect": self.make_aspect,
                           "roughness": self.make_roughness,
                           "color-relief": self.make_color_relief}
+        # for hillshade-color, keep track of hillshade and color-relief
+        self.hillshade_ras = f"{self.dem_name}_hillshade{self.ext}"
+        self.color_relief_ras = f"{self.dem_name}_color-relief{self.ext}"
         # names for intermediate rasters to make output GeoTIFFs
         self.intermediate_rasters = {viz: f"intermediate_{viz}.tif" for viz in self.viz_types.keys()}
         # names for intermediate rasters to make reproject/make output PNGs
+
+    @property
+    def dem(self):
+        return self._dem
+
+    @dem.setter
+    def dem(self, dem):
+        if not os.path.exists(dem):
+            raise FileNotFoundError(f"Cannot find input DEM: {dem}")
+        self._dem = dem
+        return self._dem
 
     def _png_kmz_checker(func):
         """Used as a wrapper for making viz products, making png and kmz after tif if selected"""
@@ -135,7 +152,7 @@ class RasterViz(object):
             print(f"\nMaking hillshade raster with alt={alt}, azim={azim}.")
         light_source = "-multidirectional" if multidirectional else f"-az {azim} -alt {alt}"
         temp_path = self.intermediate_rasters["hillshade"]
-        out_path = f"{self.dem_name}_hillshade{self.ext}"
+        out_path = self.hillshade_ras
         # create intermediate hillshade
         cmd = f"{self.drun}gdaldem hillshade {self.dp}{self.dem} {self.dp}{temp_path} " \
               f"{light_source} -of {self.out_format}"
@@ -188,12 +205,37 @@ class RasterViz(object):
         """
         print(f"\nMaking color relief map with cmap={cmap}.")
         temp_path = self.intermediate_rasters["color-relief"]
-        out_path = f"{self.dem_name}_color-relief{self.ext}"
+        out_path = self.color_relief_ras
         cmap_txt = self.get_cmap_txt(cmap)
         cmd = f"{self.drun}gdaldem color-relief -alpha {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{out_path} " \
                 f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
+        return out_path
+
+    @_png_kmz_checker
+    def make_hillshade_color(self, *args, **kwargs):
+        """Make a pretty composite hillshade/color-relief image"""
+        # make hillshade and/or color-relief if haven't already
+        if not os.path.exists(self.hillshade_ras):
+            self.make_hillshade(*args, **kwargs)
+        if not os.path.exists(self.color_relief_ras):
+            self.make_color_relief(*args, **kwargs)
+        print("\nMaking hillshade-color composite raster.")
+        out_path = f"{self.dem_name}_hillshade-color{self.ext}"
+        # use image magick to blend tifs
+        cmd = f"{self.magick_path} composite -blend 60 {self.hillshade_ras} {self.color_relief_ras} {out_path}"
+        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        # copy CRS, extent, and spatial reference metadata from DEM to non-georeferenced magick output
+        r = gdal.Open(out_path, gdal.GA_Update)
+        t = gdal.Open(self.dem)
+        r.SetGeoTransform(t.GetGeoTransform())
+        r.SetProjection(t.GetProjection())
+        r.SetSpatialRef(t.GetSpatialRef())
+        # for magick composite -blend, alpha layer is somewhere between 0-255 in nodata areas. Set it back to 0.
+        alpha = r.ReadAsArray()[3]
+        alpha = np.where(alpha < 255, 0, alpha)
+        r.GetRasterBand(4).WriteArray(alpha)
         return out_path
 
     def get_cmap_txt(self, cmap='terrain'):
@@ -228,6 +270,13 @@ class RasterViz(object):
         epsg_code = "EPSG:" + proj.GetAttrValue('AUTHORITY', 1)
         return epsg_code
 
+    def get_extent(self):
+        """Get extent for DEM raster."""
+        gtif = gdal.Open(self.dem)
+        geo_transform = gtif.GetGeoTransform()
+        extent = " ".join([str(x) for x in geo_transform])
+        return extent
+
     def get_elev_range(self):
         """Get range (min, max) of DEM elevation values."""
         gtif = gdal.Open(self.dem)
@@ -239,8 +288,10 @@ class RasterViz(object):
 
     def tile_and_compress(self, in_path, out_path):
         """Used to turn intermediate raster viz products into final outputs."""
+        print("Tiling and compressing raster.")
         cmd = f"{self.drun}gdal_translate {self.dp}{in_path} {self.dp}{out_path} " \
-              f"-co \"COMPRESS=LZW\" -co \"TILED=YES\" -co \"blockxsize=256\" -co \"blockysize=256\" -co \"COPY_SRC_OVERVIEWS=YES\""
+              f"-co \"COMPRESS=LZW\" -co \"TILED=YES\" " \
+              f"-co \"blockxsize=256\" -co \"blockysize=256\" -co \"COPY_SRC_OVERVIEWS=YES\""
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         return out_path
 
@@ -284,13 +335,14 @@ class RasterViz(object):
 
 if __name__ == "__main__":
     # example run here
-    dem = 'ak_north.tin.tif'
+    dem = 'sc_river.tin.tif'
     viz = RasterViz(dem=dem, make_png=True, make_kmz=True)
     viz.make_hillshade(alt=42, azim=217, multidirectional=True)
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
     viz.make_color_relief(cmap='terrain')
+    viz.make_hillshade_color(multidirectional=True)
 
     argv = sys.argv
     if (len(argv) < 2) or (argv[1] in ["-h", "--help"]):
@@ -325,3 +377,6 @@ if __name__ == "__main__":
 
         # call viz method
         viz.viz_types[viz_type](*args, **kwargs)
+
+    end = time.time()
+    print(f'Ran in {end - start:.0f} s.')
