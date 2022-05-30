@@ -1,29 +1,27 @@
+#!/usr/bin/env python
+import os
 import sys
 import gdal
 import osr
-import os
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
-
 import time
-start = time.time()
+start = time.time()  # track time for script to finish
+
 usage = """
-Python script for OpenTopography Raster Visualization products.
-This script can be called using its class object/methods or as a CLI. 
-See class definition for details of running via OOP.
+Python script for OpenTopography Raster Derivative/Visualization products.
+This script can be called from Python using its class/methods or as a CLI utility.
 
 CLI Usage:
 
 "python3 RasterViz.py viz_type [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-make_png] [-make_kmz] in_dem.tif"
+    [-cmap (default=terrain)] [-make_png] [-make_kmz] /path/to/dem.tif"
 
 Options:
-
-    viz_type: string corresponding to method for producing the raster product, one of the following strings: 
-        ["hillshade", "slope", "aspect", "roughness", "color-relief"]
-        
-    in_dem.tif: path to input DEM, currently assumed to be in GeoTIFF format.
+    
+    viz_type: string corresponding to raster product to be produced, one of the following strings: 
+        ["hillshade", "slope", "aspect", "roughness", "color-relief", "hillshade-color"]
     
     -alt: only if using "hillshade" viz_type, altitude of light source in degrees [0-90]. Default 45.
     
@@ -37,10 +35,22 @@ Options:
     
     -make_png: output a png version (EPSG:3857) of the viz_type in addition to the viz raster in source projection.
     
-    -make_kmz: output a kmz version (EPSG:3857) of the viz_type in addition to the viz raster in source projection.
+    -make_kmz: output a kmz version of the viz_type in addition to the viz raster in source projection.
+    
+    -docker: run GDAL commands from within the osgeo/gdal docker container. This makes it run slightly slower but will
+             be needed to run all features if gdal install is on a version <2.2. If using docker, input path must be
+             within the working directory path or a subdirectory.
 
-Output files use the DEM basename (before .) as a prefix with the name of the viz_type appended with an underscore,
-and relevant extension. E.g. output.tin.tif --> output_hillshade.tif, output_hillshade.png, output_hillshade.kmz
+    /path/to/dem.tif: path to input DEM, currently assumed to be in GeoTIFF format.
+
+Notes: Output file naming convention uses the DEM basename as a prefix, then viz_type and file extension. 
+       E.g. output.tin.tif --> output_hillshade.tif, output_hillshade.png, output_hillshade.kmz.
+       Outputs are saved to the working directory.
+
+Dependencies:
+    - Python >=3.6
+    - GDAL >=2.2 (or run with lower version on sys using -docker flag)
+    - ImageMagick (executable path can be hard-coded below in self.magick_path, currently assume magick is in sys path)
 """
 
 
@@ -54,7 +64,7 @@ class RasterViz(object):
     Raster visualization object for handling DEM derivative product visualization processing routines.
 
     Usage: instantiate a RasterViz object with the DEM path as input, e.g.
-        viz = RasterViz(dem_path, make_png=[True/False], make_kmz=[True/False])
+        viz = RasterViz(dem_path, make_png=[True/False], make_kmz=[True/False], docker_run=[True/False])
     Then call the desired methods with optional arguments.
     Current methods corresponding to different output products:
         self.make_hillshade()
@@ -62,28 +72,33 @@ class RasterViz(object):
         self.make_aspect()
         self.make_roughness()
         self.make_color_relief()
+        self.make_hillshade_color()
 
     See individual methods for further descriptions.
 
     TODO
+        - make thumbnail/downsampled .png?
         - test scaling of outputs with lat/long coord system GeoTIFFs
     """
-    def __init__(self, dem, make_png=False, make_kmz=False, *args, **kwargs):
-        # prefix to run commands in docker image
+    def __init__(self, dem, make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
+        # ref working directory in windows or linux
         pwd = "%cd%" if sys.platform == "win32" else "$(pwd)"
-        # docker run string to call a command in the osgeo/gdal container
-        self.drun = f"docker run -v {pwd}:/data osgeo/gdal "
-        # docker path for mounted pwd volume
-        self.dp = "/data/"
-        # path to imagemagick
+        if docker_run:
+            # docker run string to call a command in the osgeo/gdal container
+            self.drun = f"docker run -v {pwd}:/data osgeo/gdal "
+            # docker path for mounted pwd volume
+            self.dp = "/data/"
+        else:
+            self.drun = ""
+            self.dp = ""
+        # path to imagemagick (currently assuming magick is in system path variables)
         self.magick_path = "magick"
         # the input DEM path
         self.dem = dem
         # used as prefix for all output filenames
         self.dem_name = os.path.basename(self.dem).split('.')[0]
-        # projection of DEM
+        # get projection of DEM
         self.proj = self.get_projection()
-        self.extent = self.get_extent()
         # determine if we will make png/kmz files after making GeoTIFF
         self.make_png = make_png
         self.make_kmz = make_kmz
@@ -100,7 +115,8 @@ class RasterViz(object):
                           "slope": self.make_slope,
                           "aspect": self.make_aspect,
                           "roughness": self.make_roughness,
-                          "color-relief": self.make_color_relief}
+                          "color-relief": self.make_color_relief,
+                          "hillshade-color": self.make_hillshade_color}
         # for hillshade-color, keep track of hillshade and color-relief
         self.hillshade_ras = f"{self.dem_name}_hillshade{self.ext}"
         self.color_relief_ras = f"{self.dem_name}_color-relief{self.ext}"
@@ -125,11 +141,14 @@ class RasterViz(object):
             try:
                 # call decorated method
                 ras_path = func(self, *args, **kwargs)
+                print(f"Saved {ras_path}.")
                 # make png and kmz if applicable
                 if self.make_png:
-                    self.raster_to_png(ras_path)
+                    png_path = self.raster_to_png(ras_path)
+                    print(f"Saved {png_path}.")
                 if self.make_kmz:
-                    self.raster_to_kmz(ras_path)
+                    kmz_path = self.raster_to_kmz(ras_path)
+                    print(f"Saved {kmz_path}.")
             except Exception as e:
                 raise Exception(e)
             finally:
@@ -147,7 +166,7 @@ class RasterViz(object):
         :param multidirectional: bool, makes multidirectional hillshade if True, overriding alt and azim.
         """
         if multidirectional:
-            print("Making multidirectional hillshade raster.")
+            print("\nMaking multidirectional hillshade raster.")
         else:
             print(f"\nMaking hillshade raster with alt={alt}, azim={azim}.")
         light_source = "-multidirectional" if multidirectional else f"-az {azim} -alt {alt}"
@@ -226,17 +245,30 @@ class RasterViz(object):
         # use image magick to blend tifs
         cmd = f"{self.magick_path} composite -blend 60 {self.hillshade_ras} {self.color_relief_ras} {out_path}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
-        # copy CRS, extent, and spatial reference metadata from DEM to non-georeferenced magick output
-        r = gdal.Open(out_path, gdal.GA_Update)
-        t = gdal.Open(self.dem)
-        r.SetGeoTransform(t.GetGeoTransform())
-        r.SetProjection(t.GetProjection())
-        r.SetSpatialRef(t.GetSpatialRef())
+        # copy spatial reference/projection metadata from DEM to non-georeferenced magick output
+        self.copy_ras_metadata(src_ras=self.dem, target_ras=out_path)
         # for magick composite -blend, alpha layer is somewhere between 0-255 in nodata areas. Set it back to 0.
+        self.bin_alpha(out_path)
+        return out_path
+
+    @staticmethod
+    def copy_ras_metadata(src_ras, target_ras):
+        """Copy GeoTIFF metadata (CRS, extent, spatial ref) from source to target raster."""
+        s = gdal.Open(src_ras, gdal.GA_ReadOnly)
+        t = gdal.Open(target_ras, gdal.GA_Update)
+        t.SetGeoTransform(s.GetGeoTransform())
+        t.SetProjection(s.GetProjection())
+        t.SetSpatialRef(s.GetSpatialRef())
+        return target_ras
+
+    @staticmethod
+    def bin_alpha(ras):
+        """Set alpha channel of RGBA ras to 0 where it is <100%"""
+        r = gdal.Open(ras, gdal.GA_Update)
         alpha = r.ReadAsArray()[3]
         alpha = np.where(alpha < 255, 0, alpha)
         r.GetRasterBand(4).WriteArray(alpha)
-        return out_path
+        return ras
 
     def get_cmap_txt(self, cmap='terrain'):
         """
@@ -265,21 +297,21 @@ class RasterViz(object):
 
     def get_projection(self):
         """Get EPSG code for DEM raster projection."""
-        gtif = gdal.Open(self.dem)
+        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
         proj = osr.SpatialReference(wkt=gtif.GetProjection())
         epsg_code = "EPSG:" + proj.GetAttrValue('AUTHORITY', 1)
         return epsg_code
 
     def get_extent(self):
         """Get extent for DEM raster."""
-        gtif = gdal.Open(self.dem)
+        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
         geo_transform = gtif.GetGeoTransform()
         extent = " ".join([str(x) for x in geo_transform])
         return extent
 
     def get_elev_range(self):
         """Get range (min, max) of DEM elevation values."""
-        gtif = gdal.Open(self.dem)
+        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
         elevband = gtif.GetRasterBand(1)
         elevband.ComputeStatistics(0)
         min_elev = elevband.GetMinimum()
@@ -297,10 +329,9 @@ class RasterViz(object):
 
     def raster_to_png(self, ras_path):
         """Convert raster to .png file. Coerce to EPSG:3857 consistent with existing OT service."""
-        print("Generating .png file.")
+        print("\nGenerating .png file.")
         png_name = ras_path.replace(self.ext, ".png")
         # translate from DEM srs to EPSG 3857 (if DEM is not in this srs)
-        #
         if self.proj != self.viz_srs:
             tmp_path = "tmp_3857.tif"
             cmd = f"{self.drun}gdalwarp " \
@@ -316,7 +347,7 @@ class RasterViz(object):
 
     def raster_to_kmz(self, ras_path):
         """Convert .tif raster to .kmz file"""
-        print("Generating .kmz file.")
+        print("\nGenerating .kmz file.")
         kmz_name = ras_path.replace(self.ext, ".kmz")
         cmd = f"{self.drun}gdal_translate -ot Byte -scale -co format=png -of KMLSUPEROVERLAY " \
               f"{self.dp}{ras_path} {self.dp}{kmz_name}"
@@ -334,18 +365,20 @@ class RasterViz(object):
 
 
 if __name__ == "__main__":
-    # example run here
-    dem = 'sc_river.tin.tif'
-    viz = RasterViz(dem=dem, make_png=True, make_kmz=True)
+    # example Python here
+    """
+    dem = 'superior_lld.tif'
+    viz = RasterViz(dem=dem, make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade(alt=42, azim=217, multidirectional=True)
+    viz.make_color_relief(cmap='terrain')
+    viz.make_hillshade_color(multidirectional=True)
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
-    viz.make_color_relief(cmap='terrain')
-    viz.make_hillshade_color(multidirectional=True)
+    """
 
     argv = sys.argv
-    if (len(argv) < 2) or (argv[1] in ["-h", "--help"]):
+    if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
         print_usage()
     else:
         # keep track of args/kwargs for the viz_type
@@ -357,8 +390,9 @@ if __name__ == "__main__":
         # optional args for RasterViz init
         make_png = True if ("-make_png" in argv) else False
         make_kmz = True if ("-make_kmz" in argv) else False
+        docker_run = True if ("-docker" in argv) else False
         # instantiate RasterViz object
-        viz = RasterViz(dem=dem, make_png=make_png, make_kmz=make_kmz)
+        viz = RasterViz(dem=dem, make_png=make_png, make_kmz=make_kmz, docker_run=docker_run)
         # handle args/kwargs for hillshade
         if viz_type == "hillshade":
             for i, arg in enumerate(argv):
@@ -378,5 +412,5 @@ if __name__ == "__main__":
         # call viz method
         viz.viz_types[viz_type](*args, **kwargs)
 
-    end = time.time()
-    print(f'Ran in {end - start:.0f} s.')
+        end = time.time()
+        print(f'Done.\nRan in {end - start:.0f} s.')
