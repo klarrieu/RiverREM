@@ -1,6 +1,11 @@
 .idea/
+cache/
+venv/
 test_dems/
 *.tif
 *.png
 *.kmz
 *.aux.xml
+*.dbf
+*.shp
+*.shx

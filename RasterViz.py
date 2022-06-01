@@ -49,7 +49,7 @@ Notes: Output file naming convention uses the DEM basename as a prefix, then viz
 
 Dependencies:
     - Python >=3.6
-    - GDAL >=2.2 (or run with lower version on sys using -docker flag)
+    - GDAL >=2.2 (or run with lower version in environment using -docker flag)
     - ImageMagick (executable path can be hard-coded below in self.magick_path, currently assume magick is in sys path)
 """
 
@@ -77,8 +77,9 @@ class RasterViz(object):
     See individual methods for further descriptions.
 
     TODO
+        - tarball/gzip outputs? or handle separately?
         - make thumbnail/downsampled .png?
-        - test scaling of outputs with lat/long coord system GeoTIFFs
+        - handle scaling of outputs with lat/long coord system GeoTIFFs?
     """
     def __init__(self, dem, make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
         # ref working directory in windows or linux
@@ -394,7 +395,7 @@ if __name__ == "__main__":
         # instantiate RasterViz object
         viz = RasterViz(dem=dem, make_png=make_png, make_kmz=make_kmz, docker_run=docker_run)
         # handle args/kwargs for hillshade
-        if viz_type == "hillshade":
+        if viz_type in ["hillshade", "hillshade-color"]:
             for i, arg in enumerate(argv):
                 if arg in ["-alt", "-azim"]:
                     k = arg.replace('-', '')
@@ -403,7 +404,7 @@ if __name__ == "__main__":
                     k = arg.replace('-', '')
                     kwargs[k] = True
         # handle args/kwargs for color-relief
-        if viz_type == "color-relief":
+        if viz_type in ["color-relief", "hillshade-color"]:
             for i, arg in enumerate(argv):
                 if arg == "-cmap":
                     k = arg.replace('-', '')
