@@ -257,41 +257,23 @@ class RasterViz(object):
     def blend_images(self, blend_percent=60):
         """
         Blend hillshade and color-relief rasters by linearly interpolating RGB values
-        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight. Default 60.
+        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight [0-100]. Default 60.
         """
-        # read in hillshade and color relief rasters
+        b = blend_percent / 100
+        # read in hillshade and color relief rasters as arrays
         hs = gdal.Open(self.hillshade_ras, gdal.GA_ReadOnly)
         cr = gdal.Open(self.color_relief_ras, gdal.GA_ReadOnly)
+        hs_array = hs.ReadAsArray()   # singleband (m, n)
+        cr_arrays = cr.ReadAsArray()  # RGBA       (4, m, n)
         # make a copy of color-relief raster
         driver = gdal.GetDriverByName(self.out_format)
         blend_ras_name = self.intermediate_rasters["hillshade-color"]
         blend_ras = driver.CreateCopy(blend_ras_name, cr, strict=0)
-        hs_array = hs.ReadAsArray()
-        # linearly interpolate RGB values between hillshade and color-relief
+        # linearly interpolate between hillshade and color-relief RGB values (keeping alpha channel from color-relief)
         for i in range(3):
-            blended_band = blend_percent / 100 * hs_array + \
-                           (1 - blend_percent / 100) * cr.GetRasterBand(i+1).ReadAsArray()
+            blended_band = b * hs_array + (1 - b) * cr_arrays[i]
             blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
         return blend_ras_name
-
-    @staticmethod
-    def copy_ras_metadata(src_ras, target_ras):
-        """Copy GeoTIFF metadata (CRS, extent, spatial ref) from source to target raster."""
-        s = gdal.Open(src_ras, gdal.GA_ReadOnly)
-        t = gdal.Open(target_ras, gdal.GA_Update)
-        t.SetGeoTransform(s.GetGeoTransform())
-        t.SetProjection(s.GetProjection())
-        t.SetSpatialRef(s.GetSpatialRef())
-        return target_ras
-
-    @staticmethod
-    def bin_alpha(ras):
-        """Set alpha channel of RGBA ras to 0 where it is <100%"""
-        r = gdal.Open(ras, gdal.GA_Update)
-        alpha = r.ReadAsArray()[3]
-        alpha = np.where(alpha < 255, 0, alpha)
-        r.GetRasterBand(4).WriteArray(alpha)
-        return ras
 
     def get_cmap_txt(self, cmap='terrain'):
         """
@@ -320,22 +302,15 @@ class RasterViz(object):
 
     def get_projection(self):
         """Get EPSG code for DEM raster projection."""
-        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        proj = osr.SpatialReference(wkt=gtif.GetProjection())
+        ras = gdal.Open(self.dem, gdal.GA_ReadOnly)
+        proj = osr.SpatialReference(wkt=ras.GetProjection())
         epsg_code = "EPSG:" + proj.GetAttrValue('AUTHORITY', 1)
         return epsg_code
 
-    def get_extent(self):
-        """Get extent for DEM raster."""
-        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        geo_transform = gtif.GetGeoTransform()
-        extent = " ".join([str(x) for x in geo_transform])
-        return extent
-
     def get_elev_range(self):
         """Get range (min, max) of DEM elevation values."""
-        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        elevband = gtif.GetRasterBand(1)
+        ras = gdal.Open(self.dem, gdal.GA_ReadOnly)
+        elevband = ras.GetRasterBand(1)
         elevband.ComputeStatistics(0)
         min_elev = elevband.GetMinimum()
         max_elev = elevband.GetMaximum()
@@ -388,13 +363,13 @@ class RasterViz(object):
 
 
 if __name__ == "__main__":
-    # example Python here
+    # example Python run here
     """
     dem = './test_dems/sc_river.tin.tif'
     viz = RasterViz(dem=dem, make_png=True, make_kmz=True, docker_run=False)
-    viz.make_hillshade(alt=42, azim=217, multidirectional=True)
+    viz.make_hillshade(z=5, alt=42, azim=217, multidirectional=True)
     viz.make_color_relief(cmap='terrain')
-    viz.make_hillshade_color(multidirectional=True)
+    viz.make_hillshade_color(z=5, multidirectional=True)
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
