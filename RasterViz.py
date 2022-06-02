@@ -55,7 +55,6 @@ Notes: Output file naming convention uses the DEM basename as a prefix, then viz
 Dependencies:
     - Python >=3.6
     - GDAL >=2.2 (or run with lower version in environment using -docker flag)
-    - ImageMagick (executable path can be hard-coded below in self.magick_path, currently assume magick is in sys path)
 """
 
 
@@ -82,7 +81,6 @@ class RasterViz(object):
     See individual methods for further descriptions.
 
     TODO
-        - do composite blend with gdal instead of magick?
         - test on global datasets, different projections
         - make thumbnail/downsampled .png
         - mockup GUI frontend
@@ -98,8 +96,6 @@ class RasterViz(object):
         else:
             self.drun = ""
             self.dp = ""
-        # path to imagemagick (currently assuming magick is in system path variables)
-        self.magick_path = "magick"
         # the input DEM path
         self.dem = dem
         # used as prefix for all output filenames
@@ -252,17 +248,31 @@ class RasterViz(object):
         if not os.path.exists(self.color_relief_ras):
             self.make_color_relief(*args, **kwargs)
         print("\nMaking hillshade-color composite raster.")
-        temp_path = self.intermediate_rasters["hillshade-color"]
+        # blend images using GDAL and numpy to linearly interpolate RGB values
+        temp_path = self.blend_images()
         out_path = f"{self.dem_name}_hillshade-color{self.ext}"
-        # use image magick to blend tifs
-        cmd = f"{self.magick_path} composite -blend 60 {self.hillshade_ras} {self.color_relief_ras} {temp_path}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
-        # copy spatial reference/projection metadata from DEM to non-georeferenced magick output
-        self.copy_ras_metadata(src_ras=self.dem, target_ras=temp_path)
-        # for magick composite -blend, alpha layer is somewhere between 0-255 in nodata areas. Set it back to 0.
-        self.bin_alpha(temp_path)
         self.tile_and_compress(temp_path, out_path)
         return out_path
+
+    def blend_images(self, blend_percent=60):
+        """
+        Blend hillshade and color-relief rasters by linearly interpolating RGB values
+        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight. Default 60.
+        """
+        # read in hillshade and color relief rasters
+        hs = gdal.Open(self.hillshade_ras, gdal.GA_ReadOnly)
+        cr = gdal.Open(self.color_relief_ras, gdal.GA_ReadOnly)
+        # make a copy of color-relief raster
+        driver = gdal.GetDriverByName(self.out_format)
+        blend_ras_name = self.intermediate_rasters["hillshade-color"]
+        blend_ras = driver.CreateCopy(blend_ras_name, cr, strict=0)
+        hs_array = hs.ReadAsArray()
+        # linearly interpolate RGB values between hillshade and color-relief
+        for i in range(3):
+            blended_band = blend_percent / 100 * hs_array + \
+                           (1 - blend_percent / 100) * cr.GetRasterBand(i+1).ReadAsArray()
+            blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
+        return blend_ras_name
 
     @staticmethod
     def copy_ras_metadata(src_ras, target_ras):
@@ -380,7 +390,7 @@ class RasterViz(object):
 if __name__ == "__main__":
     # example Python here
     """
-    dem = 'superior_lld.tif'
+    dem = './test_dems/sc_river.tin.tif'
     viz = RasterViz(dem=dem, make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade(alt=42, azim=217, multidirectional=True)
     viz.make_color_relief(cmap='terrain')
