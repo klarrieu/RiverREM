@@ -15,20 +15,25 @@ This script can be called from Python using its class/methods or as a CLI utilit
 
 CLI Usage:
 
-"python3 RasterViz.py viz_type [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-make_png] [-make_kmz] /path/to/dem.tif"
+"python RasterViz.py viz_type [-z (default=1)] [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
+    [-cmap (default=terrain)] [-make_png] [-make_kmz] [-docker] /path/to/dem.tif"
 
 Options:
     
     viz_type: string corresponding to raster product to be produced, one of the following strings: 
         ["hillshade", "slope", "aspect", "roughness", "color-relief", "hillshade-color"]
     
-    -alt: only if using "hillshade" viz_type, altitude of light source in degrees [0-90]. Default 45.
+    -z: only if using "hillshade" or "hillshade-color" viz_type,
+        factor to scale/exaggerate vertical topographic differences. Default 1 (no rescale).
     
-    -azim: only if using "hillshade" viz_type, azimuth of light source in degrees [0-360]. Default 315.
+    -alt: only if using "hillshade" or "hillshade-color" viz_type, 
+          altitude of light source in degrees [0-90]. Default 45.
     
-    -multidirectional: only if using "hillshade" viz_type. Makes multidirectional hillshade, overriding
-     alt and azim args.
+    -azim: only if using "hillshade" or "hillshade-color" viz_type, 
+           azimuth of light source in degrees [0-360]. Default 315.
+    
+    -multidirectional: only if using "hillshade" or "hillshade-color" viz_type. 
+                       Makes multidirectional hillshade, overriding alt and azim args.
     
     -cmap: only if using "color-relief" viz_type, name of a matplotlib colormap. Default "terrain".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
@@ -77,9 +82,10 @@ class RasterViz(object):
     See individual methods for further descriptions.
 
     TODO
-        - tarball/gzip outputs? or handle separately?
-        - make thumbnail/downsampled .png?
-        - handle scaling of outputs with lat/long coord system GeoTIFFs?
+        - do composite blend with gdal instead of magick?
+        - test on global datasets, different projections
+        - make thumbnail/downsampled .png
+        - mockup GUI frontend
     """
     def __init__(self, dem, make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
         # ref working directory in windows or linux
@@ -100,6 +106,8 @@ class RasterViz(object):
         self.dem_name = os.path.basename(self.dem).split('.')[0]
         # get projection of DEM
         self.proj = self.get_projection()
+        # scale horizontal units from lat/long --> meters for hillshade, slope in WGS84 coords (assumes near equator)
+        self.scale = "-s 111120" if self.proj == "EPSG:4326" else ""
         # determine if we will make png/kmz files after making GeoTIFF
         self.make_png = make_png
         self.make_kmz = make_kmz
@@ -159,9 +167,10 @@ class RasterViz(object):
         return wrapper
 
     @_png_kmz_checker
-    def make_hillshade(self, alt=45, azim=315, multidirectional=False, *args, **kwargs):
+    def make_hillshade(self, z=1, alt=45, azim=315, multidirectional=False, *args, **kwargs):
         """
         Make hillshade raster from DEM.
+        :param z: z factor for scaling/exaggerating vertical scale differences (default 1) [>0].
         :param alt: numeric, altitude of light source in degrees (default 45) [0-90]
         :param azim: numeric, azimuth for light source in degrees (default 315) [0-360]
         :param multidirectional: bool, makes multidirectional hillshade if True, overriding alt and azim.
@@ -171,11 +180,12 @@ class RasterViz(object):
         else:
             print(f"\nMaking hillshade raster with alt={alt}, azim={azim}.")
         light_source = "-multidirectional" if multidirectional else f"-az {azim} -alt {alt}"
+        z_fact = f"-z {z}" if z != 1 else ""
         temp_path = self.intermediate_rasters["hillshade"]
         out_path = self.hillshade_ras
         # create intermediate hillshade
         cmd = f"{self.drun}gdaldem hillshade {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"{light_source} -of {self.out_format}"
+              f"{z_fact} {self.scale} {light_source} -of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
         return out_path
@@ -187,7 +197,7 @@ class RasterViz(object):
         temp_path = self.intermediate_rasters["slope"]
         out_path = f"{self.dem_name}_slope{self.ext}"
         cmd = f"{self.drun}gdaldem slope {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"-of {self.out_format}"
+              f"{self.scale} -of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
         return out_path
@@ -219,7 +229,7 @@ class RasterViz(object):
     @_png_kmz_checker
     def make_color_relief(self, cmap='terrain', *args, **kwargs):
         """
-        Make color relief map from DEM (3 band RGB raster)
+        Make color relief map from DEM (4 band RGBA raster)
         :param cmap: str, matplotlib colormap to use for making color relief map.
                      (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
         """
@@ -242,14 +252,16 @@ class RasterViz(object):
         if not os.path.exists(self.color_relief_ras):
             self.make_color_relief(*args, **kwargs)
         print("\nMaking hillshade-color composite raster.")
+        temp_path = self.intermediate_rasters["hillshade-color"]
         out_path = f"{self.dem_name}_hillshade-color{self.ext}"
         # use image magick to blend tifs
-        cmd = f"{self.magick_path} composite -blend 60 {self.hillshade_ras} {self.color_relief_ras} {out_path}"
+        cmd = f"{self.magick_path} composite -blend 60 {self.hillshade_ras} {self.color_relief_ras} {temp_path}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         # copy spatial reference/projection metadata from DEM to non-georeferenced magick output
-        self.copy_ras_metadata(src_ras=self.dem, target_ras=out_path)
+        self.copy_ras_metadata(src_ras=self.dem, target_ras=temp_path)
         # for magick composite -blend, alpha layer is somewhere between 0-255 in nodata areas. Set it back to 0.
-        self.bin_alpha(out_path)
+        self.bin_alpha(temp_path)
+        self.tile_and_compress(temp_path, out_path)
         return out_path
 
     @staticmethod
@@ -397,7 +409,7 @@ if __name__ == "__main__":
         # handle args/kwargs for hillshade
         if viz_type in ["hillshade", "hillshade-color"]:
             for i, arg in enumerate(argv):
-                if arg in ["-alt", "-azim"]:
+                if arg in ["-z", "-alt", "-azim"]:
                     k = arg.replace('-', '')
                     kwargs[k] = float(argv[i+1])
                 if arg == '-multidirectional':
