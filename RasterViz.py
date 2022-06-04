@@ -3,6 +3,7 @@ import os
 import sys
 import gdal
 import osr
+from PIL import Image
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
@@ -39,6 +40,7 @@ Options:
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
     
     -make_png: output a png version (EPSG:3857) of the viz_type in addition to the viz raster in source projection.
+               If this option is used, a thumbnail version of the png will also be produced.
     
     -make_kmz: output a kmz version of the viz_type in addition to the viz raster in source projection.
     
@@ -79,11 +81,6 @@ class RasterViz(object):
         self.make_hillshade_color()
 
     See individual methods for further descriptions.
-
-    TODO
-        - test on global datasets, different projections
-        - make thumbnail/downsampled .png
-        - mockup GUI frontend
     """
     def __init__(self, dem, make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
         # ref working directory in windows or linux
@@ -341,6 +338,7 @@ class RasterViz(object):
         cmd = f"{self.drun}gdal_translate -ot Byte -scale -of PNG " \
               f"{self.dp}{tmp_path} {self.dp}{png_name}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        self.make_thumbnail(png_name)
         return png_name
 
     def raster_to_kmz(self, ras_path):
@@ -351,6 +349,16 @@ class RasterViz(object):
               f"{self.dp}{ras_path} {self.dp}{kmz_name}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         return kmz_name
+
+    def make_thumbnail(self, png_name):
+        """Make downsized/thumbnail version of png image."""
+        print("Making .png thumbnail.")
+        png_thumbnail_name = png_name.replace(".png", "_thumbnail.png")
+        max_size = (400, 400)
+        png_thumbnail = Image.open(png_name).copy()
+        png_thumbnail.thumbnail(max_size)
+        png_thumbnail.save(png_thumbnail_name)
+        return png_thumbnail_name
 
     def clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
