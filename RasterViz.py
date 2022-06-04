@@ -97,10 +97,10 @@ class RasterViz(object):
         self.dem = dem
         # used as prefix for all output filenames
         self.dem_name = os.path.basename(self.dem).split('.')[0]
-        # get projection of DEM
-        self.proj = self.get_projection()
-        # scale horizontal units from lat/long --> meters for hillshade, slope in WGS84 coords (assumes near equator)
-        self.scale = "-s 111120" if self.proj == "EPSG:4326" else ""
+        # get projection, horizontal units of DEM
+        self.proj, self.h_unit = self.get_projection()
+        # scale horizontal units from lat/long --> meters when calculating hillshade, slope (assumes near equator)
+        self.scale = "-s 111120" if self.h_unit == "degree" else ""
         # determine if we will make png/kmz files after making GeoTIFF
         self.make_png = make_png
         self.make_kmz = make_kmz
@@ -302,7 +302,8 @@ class RasterViz(object):
         ras = gdal.Open(self.dem, gdal.GA_ReadOnly)
         proj = osr.SpatialReference(wkt=ras.GetProjection())
         epsg_code = "EPSG:" + proj.GetAttrValue('AUTHORITY', 1)
-        return epsg_code
+        h_unit = proj.GetAttrValue('UNIT')
+        return epsg_code, h_unit
 
     def get_elev_range(self):
         """Get range (min, max) of DEM elevation values."""
@@ -335,7 +336,8 @@ class RasterViz(object):
         else:
             tmp_path = ras_path
         # convert to PNG
-        cmd = f"{self.drun}gdal_translate -ot Byte -scale -of PNG " \
+        scale = self.get_scaling(tmp_path)
+        cmd = f"{self.drun}gdal_translate -ot Byte{scale} -of PNG " \
               f"{self.dp}{tmp_path} {self.dp}{png_name}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.make_thumbnail(png_name)
@@ -345,10 +347,27 @@ class RasterViz(object):
         """Convert .tif raster to .kmz file"""
         print("\nGenerating .kmz file.")
         kmz_name = ras_path.replace(self.ext, ".kmz")
-        cmd = f"{self.drun}gdal_translate -ot Byte -scale -co format=png -of KMLSUPEROVERLAY " \
+        scale = self.get_scaling(ras_path)
+        cmd = f"{self.drun}gdal_translate -ot Byte{scale} -co format=png -of KMLSUPEROVERLAY " \
               f"{self.dp}{ras_path} {self.dp}{kmz_name}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         return kmz_name
+
+    @staticmethod
+    def get_scaling(ras_name):
+        """Get scaling string for gdal_translate call when converting to Byte array for png/kmz outputs"""
+        # color-relief and hillshade-color already have 0-255 color range, don't change
+        if "color" in ras_name:
+            scale = ""
+        else:
+            ras = gdal.Open(ras_name, gdal.GA_ReadOnly)
+            band = ras.GetRasterBand(1)
+            band.ComputeStatistics(0)
+            min_val = band.GetMinimum()
+            max_val = band.GetMaximum()
+            # set output range to start at 1, so we don't erroneously set low values to nodata (0 for byte array)
+            scale = f" -scale {min_val} {max_val} 1 255"
+        return scale
 
     def make_thumbnail(self, png_name):
         """Make downsized/thumbnail version of png image."""
@@ -373,11 +392,11 @@ class RasterViz(object):
 if __name__ == "__main__":
     # example Python run here
     """
-    dem = './test_dems/sc_river.tin.tif'
+    dem = './test_dems/smith_SRTM.tif'
     viz = RasterViz(dem=dem, make_png=True, make_kmz=True, docker_run=False)
-    viz.make_hillshade(z=5, alt=42, azim=217, multidirectional=True)
-    viz.make_color_relief(cmap='terrain')
-    viz.make_hillshade_color(z=5, multidirectional=True)
+    viz.make_hillshade(multidirectional=True)
+    viz.make_color_relief(cmap='cividis')
+    viz.make_hillshade_color(multidirectional=True)
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
