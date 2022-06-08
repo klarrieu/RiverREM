@@ -1,5 +1,6 @@
 .idea/
 cache/
+__pycache__/
 venv/
 test_dems/
 *.tif
@@ -9,3 +10,4 @@ test_dems/
 *.dbf
 *.shp
 *.shx
+*.prj
