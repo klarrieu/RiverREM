@@ -18,7 +18,7 @@ This script can be called from Python using its class/methods or as a CLI utilit
 CLI Usage:
 
 "python RasterViz.py viz_type [-z (default=1)] [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-out_ext (default=tif)] [-make_png] [-make_kmz] [-docker] /path/to/dem.tif"
+    [-cmap (default=terrain)] [-out_ext tif | img (default=tif)] [-make_png] [-make_kmz] [-docker] /path/to/dem"
 
 Options:
     
