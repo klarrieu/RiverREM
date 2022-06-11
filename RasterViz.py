@@ -4,6 +4,7 @@ import sys
 import gdal
 import osr
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None  # to avoid decompression bomb warnings when reading large images
 import subprocess
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,7 +18,7 @@ This script can be called from Python using its class/methods or as a CLI utilit
 CLI Usage:
 
 "python RasterViz.py viz_type [-z (default=1)] [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-make_png] [-make_kmz] [-docker] /path/to/dem.tif"
+    [-cmap (default=terrain)] [-out_ext (default=tif)] [-make_png] [-make_kmz] [-docker] /path/to/dem.tif"
 
 Options:
     
@@ -38,6 +39,8 @@ Options:
     
     -cmap: only if using "color-relief" viz_type, name of a matplotlib colormap. Default "terrain".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+    
+    -out_ext: the extension/file format to use for geodata outputs (tif or img). Default "tif".
     
     -make_png: output a png version (EPSG:3857) of the viz_type in addition to the viz raster in source projection.
                If this option is used, a thumbnail version of the png will also be produced.
@@ -81,8 +84,13 @@ class RasterViz(object):
         self.make_hillshade_color()
 
     See individual methods for further descriptions.
+
+    TODO:
+        - test input with nodata not assigned (COP30), outputting to img
+            - didn't automatically use transparency in hillshade-color or color-relief. Try setting nodatavalue in band 4 to 0
+        - test CLI usage of out_ext
     """
-    def __init__(self, dem, make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
+    def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
         # ref working directory in windows or linux
         pwd = "%cd%" if sys.platform == "win32" else "$(pwd)"
         if docker_run:
@@ -93,25 +101,29 @@ class RasterViz(object):
         else:
             self.drun = ""
             self.dp = ""
+        # file extension to use for outputs
+        self.ext = out_ext
+        # dict mapping file extension name to gdal format shortname
+        self.format_dict = {".tif": "GTiff",
+                            ".img": "HFA",
+                            ".asc": "AAIGrid",
+                            ".png": "PNG",
+                            ".kmz": "KMLOVERLAY"}
+        # format to use for output files
+        self.out_format = self.format_dict[self.ext]
         # the input DEM path
         self.dem = dem
         # used as prefix for all output filenames
-        self.dem_name = os.path.basename(self.dem).split('.')[0]
+        self.dem_name = os.path.basename(dem).split('.')[0]
         # get projection, horizontal units of DEM
         self.proj, self.h_unit = self.get_projection()
         # scale horizontal units from lat/long --> meters when calculating hillshade, slope (assumes near equator)
         self.scale = "-s 111120" if self.h_unit == "degree" else ""
+        # coordinate system to use for non-geodata visualization (i.e. PNG)
+        self.viz_srs = "EPSG:3857"
         # determine if we will make png/kmz files after making GeoTIFF
         self.make_png = make_png
         self.make_kmz = make_kmz
-        # coordinate system to use for non-geodata visualization (i.e. PNG)
-        self.viz_srs = "EPSG:3857"
-        # dict mapping gdal format shortnames to file extension name
-        self.extension_dict = {"GTiff": ".tif",
-                               "PNG": ".png",
-                               "KMLOVERLAY": ".kmz"}
-        self.out_format = "GTiff"
-        self.ext = self.extension_dict[self.out_format]
         # dict mapping CLI input viz_type strings to corresponding method
         self.viz_types = {"hillshade": self.make_hillshade,
                           "slope": self.make_slope,
@@ -123,8 +135,7 @@ class RasterViz(object):
         self.hillshade_ras = f"{self.dem_name}_hillshade{self.ext}"
         self.color_relief_ras = f"{self.dem_name}_color-relief{self.ext}"
         # names for intermediate rasters to make output GeoTIFFs
-        self.intermediate_rasters = {viz: f"intermediate_{viz}.tif" for viz in self.viz_types.keys()}
-        # names for intermediate rasters to make reproject/make output PNGs
+        self.intermediate_rasters = {viz: f"intermediate_{viz}{self.ext}" for viz in self.viz_types.keys()}
 
     @property
     def dem(self):
@@ -132,9 +143,16 @@ class RasterViz(object):
 
     @dem.setter
     def dem(self, dem):
+        # make sure the given DEM exists
         if not os.path.exists(dem):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
+        # if given DEM is in ASCII, convert to GeoTIFF
+        if dem.lower().endswith('.asc'):
+            print("Given DEM was in ASCII format, converting to GeoTIFF.")
+            self._dem = self.asc_to_tif(dem)
+        # if given DEM doesn't have NoData value, assume it is zero
+        self._check_dem_nodata()
         return self._dem
 
     def _png_kmz_checker(func):
@@ -158,6 +176,29 @@ class RasterViz(object):
                 self.clean_up()
             return
         return wrapper
+
+    def asc_to_tif(self, asc):
+        """Convert ascii grid to geotiff"""
+        tif_name = os.path.basename(asc).split('.')[0] + ".tif"
+        cmd = f"{self.drun}gdal_translate -of GTiff {self.dp}{asc} {self.dp}{tif_name}"
+        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        return tif_name
+
+    def _check_dem_nodata(self):
+        """Check that input DEM has a NoData value set. If not, set to zero."""
+        r = gdal.Open(self._dem, gdal.GA_ReadOnly)
+        band = r.GetRasterBand(1)
+        if band.GetNoDataValue() is None:
+            print("WARNING: NoData value not found for input DEM. Assuming NoData value is 0.")
+            # make a copy of the DEM
+            dem_copy_name = f"dem_copy{self.ext}"
+            driver = gdal.GetDriverByName(self.out_format)
+            dem_copy = driver.CreateCopy(dem_copy_name, r, strict=0)
+            # assign nodata value for copy
+            dem_copy.GetRasterBand(1).SetNoDataValue(0)
+            # use copy as input DEM
+            self._dem = dem_copy_name
+        return
 
     @_png_kmz_checker
     def make_hillshade(self, z=1, alt=45, azim=315, multidirectional=False, *args, **kwargs):
@@ -240,10 +281,15 @@ class RasterViz(object):
     def make_hillshade_color(self, *args, **kwargs):
         """Make a pretty composite hillshade/color-relief image"""
         # make hillshade and/or color-relief if haven't already
+        # temp variables to override make_png, make_kmz
+        _make_png, _make_kmz = self.make_png, self.make_kmz
+        self.make_png = self.make_kmz = False
         if not os.path.exists(self.hillshade_ras):
             self.make_hillshade(*args, **kwargs)
         if not os.path.exists(self.color_relief_ras):
             self.make_color_relief(*args, **kwargs)
+        self.make_png, self.make_kmz = _make_png, _make_kmz
+
         print("\nMaking hillshade-color composite raster.")
         # blend images using GDAL and numpy to linearly interpolate RGB values
         temp_path = self.blend_images()
@@ -329,7 +375,7 @@ class RasterViz(object):
         png_name = ras_path.replace(self.ext, ".png")
         # translate from DEM srs to EPSG 3857 (if DEM is not in this srs)
         if self.proj != self.viz_srs:
-            tmp_path = "tmp_3857.tif"
+            tmp_path = f"tmp_3857{self.ext}"
             cmd = f"{self.drun}gdalwarp " \
                   f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
             subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
@@ -382,7 +428,7 @@ class RasterViz(object):
     def clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
         int_files = [*self.intermediate_rasters.values(),
-                     "tmp_3857.tif",
+                     f"tmp_3857{self.ext}", f"tmp_3857{self.ext}.aux.xml",
                      f"{self.dem_name}_cmap.txt"]
         for f in int_files:
             if os.path.exists(f):
@@ -391,16 +437,16 @@ class RasterViz(object):
 
 if __name__ == "__main__":
     # example Python run here
-    """
-    dem = './test_dems/smith_SRTM.tif'
-    viz = RasterViz(dem=dem, make_png=True, make_kmz=True, docker_run=False)
+
+    dem = './test_dems/output_NASADEM.asc'
+    viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False)
+    viz.make_hillshade_color(multidirectional=True, cmap='gist_earth', z=2)
     viz.make_hillshade(multidirectional=True)
-    viz.make_color_relief(cmap='cividis')
-    viz.make_hillshade_color(multidirectional=True)
+    viz.make_color_relief(cmap='gist_earth')
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
-    """
+
 
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
@@ -413,11 +459,14 @@ if __name__ == "__main__":
         viz_type = argv[1]
         dem = argv[-1]
         # optional args for RasterViz init
+        for i, arg in enumerate(argv):
+            if arg == "-out_ext":
+                out_ext = ".img" if argv[i+1] == "img" else ".tif"
         make_png = True if ("-make_png" in argv) else False
         make_kmz = True if ("-make_kmz" in argv) else False
         docker_run = True if ("-docker" in argv) else False
         # instantiate RasterViz object
-        viz = RasterViz(dem=dem, make_png=make_png, make_kmz=make_kmz, docker_run=docker_run)
+        viz = RasterViz(dem=dem, out_ext=out_ext, make_png=make_png, make_kmz=make_kmz, docker_run=docker_run)
         # handle args/kwargs for hillshade
         if viz_type in ["hillshade", "hillshade-color"]:
             for i, arg in enumerate(argv):
@@ -436,6 +485,5 @@ if __name__ == "__main__":
 
         # call viz method
         viz.viz_types[viz_type](*args, **kwargs)
-
         end = time.time()
         print(f'Done.\nRan in {end - start:.0f} s.')
