@@ -84,11 +84,6 @@ class RasterViz(object):
         self.make_hillshade_color()
 
     See individual methods for further descriptions.
-
-    TODO:
-        - test input with nodata not assigned (COP30), outputting to img
-            - didn't automatically use transparency in hillshade-color or color-relief. Try setting nodatavalue in band 4 to 0
-        - test CLI usage of out_ext
     """
     def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
         # ref working directory in windows or linux
@@ -242,7 +237,7 @@ class RasterViz(object):
         print("\nMaking aspect raster.")
         temp_path = self.intermediate_rasters["aspect"]
         out_path = f"{self.dem_name}_aspect{self.ext}"
-        cmd = f"{self.drun}gdaldem aspect {self.dp}{self.dem} {self.dp}{out_path} " \
+        cmd = f"{self.drun}gdaldem aspect {self.dp}{self.dem} {self.dp}{temp_path} " \
               f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
@@ -254,7 +249,7 @@ class RasterViz(object):
         print("\nMaking roughness raster.")
         temp_path = self.intermediate_rasters["roughness"]
         out_path = f"{self.dem_name}_roughness{self.ext}"
-        cmd = f"{self.drun}gdaldem roughness {self.dp}{self.dem} {self.dp}{out_path} " \
+        cmd = f"{self.drun}gdaldem roughness {self.dp}{self.dem} {self.dp}{temp_path} " \
               f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
@@ -271,7 +266,7 @@ class RasterViz(object):
         temp_path = self.intermediate_rasters["color-relief"]
         out_path = self.color_relief_ras
         cmap_txt = self.get_cmap_txt(cmap)
-        cmd = f"{self.drun}gdaldem color-relief -alpha {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{out_path} " \
+        cmd = f"{self.drun}gdaldem color-relief -alpha {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
                 f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
@@ -428,8 +423,9 @@ class RasterViz(object):
     def clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
         int_files = [*self.intermediate_rasters.values(),
-                     f"tmp_3857{self.ext}", f"tmp_3857{self.ext}.aux.xml",
+                     f"tmp_3857{self.ext}",
                      f"{self.dem_name}_cmap.txt"]
+        int_files += [f + ".aux.xml" for f in int_files]
         for f in int_files:
             if os.path.exists(f):
                 os.remove(f)
@@ -437,8 +433,8 @@ class RasterViz(object):
 
 if __name__ == "__main__":
     # example Python run here
-
-    dem = './test_dems/output_NASADEM.asc'
+    """
+    dem = './test_dems/output_COP30.tif'
     viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade_color(multidirectional=True, cmap='gist_earth', z=2)
     viz.make_hillshade(multidirectional=True)
@@ -446,7 +442,7 @@ if __name__ == "__main__":
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
-
+    """
 
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
