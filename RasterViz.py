@@ -181,7 +181,7 @@ class RasterViz(object):
 
     def _check_dem_nodata(self):
         """Check that input DEM has a NoData value set. If not, set to zero."""
-        r = gdal.Open(self._dem, gdal.GA_ReadOnly)
+        r = gdal.Open(self._dem, gdal.GA_Update)
         band = r.GetRasterBand(1)
         if band.GetNoDataValue() is None:
             print("WARNING: NoData value not found for input DEM. Assuming NoData value is 0.")
@@ -191,6 +191,12 @@ class RasterViz(object):
             dem_copy = driver.CreateCopy(dem_copy_name, r, strict=0)
             # assign nodata value for copy
             dem_copy.GetRasterBand(1).SetNoDataValue(0)
+            # if there are np.nans in raster, set those values to our newly assigned nodata value (0)
+            if np.any(np.isnan(band.ReadAsArray())):
+                print("Writing nans to assigned nodata value...")
+                #arr = dem_copy.GetRasterBand(1).ReadAsArray()
+                #arr = np.where(np.isnan(arr), 0, arr)
+                #band.WriteArray(arr)
             # use copy as input DEM
             self._dem = dem_copy_name
         return
@@ -342,8 +348,11 @@ class RasterViz(object):
         """Get EPSG code for DEM raster projection."""
         ras = gdal.Open(self.dem, gdal.GA_ReadOnly)
         proj = osr.SpatialReference(wkt=ras.GetProjection())
-        epsg_code = "EPSG:" + proj.GetAttrValue('AUTHORITY', 1)
+        epsg_code = proj.GetAttrValue('AUTHORITY', 1)
+        epsg_code = "EPSG:" + epsg_code if epsg_code is not None else None
         h_unit = proj.GetAttrValue('UNIT')
+        if epsg_code is None or h_unit is None:
+            print("WARNING: CRS metadata is missing for input DEM.")
         return epsg_code, h_unit
 
     def get_elev_range(self):
@@ -369,7 +378,7 @@ class RasterViz(object):
         print("\nGenerating .png file.")
         png_name = ras_path.replace(self.ext, ".png")
         # translate from DEM srs to EPSG 3857 (if DEM is not in this srs)
-        if self.proj != self.viz_srs:
+        if (self.proj is not None) and (self.proj != self.viz_srs):
             tmp_path = f"tmp_3857{self.ext}"
             cmd = f"{self.drun}gdalwarp " \
                   f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
@@ -434,14 +443,14 @@ class RasterViz(object):
 if __name__ == "__main__":
     # example Python run here
     """
-    dem = './test_dems/output_COP30.tif'
+    dem = './test_dems/output_GMRT.tif'
     viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False)
-    viz.make_hillshade_color(multidirectional=True, cmap='gist_earth', z=2)
-    viz.make_hillshade(multidirectional=True)
-    viz.make_color_relief(cmap='gist_earth')
-    viz.make_slope()
-    viz.make_aspect()
-    viz.make_roughness()
+    viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
+    # viz.make_hillshade(multidirectional=True)
+    # viz.make_color_relief(cmap='gist_earth')
+    # viz.make_slope()
+    # viz.make_aspect()
+    # viz.make_roughness()
     """
 
     argv = sys.argv
