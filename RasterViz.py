@@ -299,6 +299,9 @@ class RasterViz(object):
         temp_path = self.blend_images()
         out_path = f"{self.dem_name}_hillshade-color{self.ext}"
         self.tile_and_compress(temp_path, out_path)
+        # set nodata value to 0 for color-relief
+        r = gdal.Open(out_path, gdal.GA_Update)
+        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
         return out_path
 
     def blend_images(self, blend_percent=60):
@@ -445,16 +448,16 @@ class RasterViz(object):
 
 if __name__ == "__main__":
     # example Python run here
-    """
+
     dem = './test_dems/well.tif'
-    viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False)
+    viz = RasterViz(dem=dem, out_ext='.img', make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
     viz.make_hillshade(multidirectional=True)
     viz.make_color_relief(cmap='gist_earth')
     viz.make_slope()
     viz.make_aspect()
     viz.make_roughness()
-    """
+
 
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
