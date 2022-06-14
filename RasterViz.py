@@ -272,10 +272,13 @@ class RasterViz(object):
         temp_path = self.intermediate_rasters["color-relief"]
         out_path = self.color_relief_ras
         cmap_txt = self.get_cmap_txt(cmap)
-        cmd = f"{self.drun}gdaldem color-relief -alpha {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
+        cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
                 f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         self.tile_and_compress(temp_path, out_path)
+        # set nodata value to 0 for color-relief
+        r = gdal.Open(out_path, gdal.GA_Update)
+        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
         return out_path
 
     @_png_kmz_checker
@@ -328,19 +331,19 @@ class RasterViz(object):
         :return: .txt file containing colormap mapped to DEM
         """
         min_elev, max_elev = self.get_elev_range()
-        # sample 256 evenly spaced elevation values
-        elevations = np.linspace(min_elev, max_elev, 256)
+        # sample 255 evenly spaced elevation values
+        elevations = np.linspace(min_elev, max_elev, 255)
         # function to convert elevations to [0-1] range (domain for cmap function)
         elev_to_x = lambda x: (x - min_elev) / (max_elev - min_elev)
-        # matplotlib cmap function maps [0-1] input to RGBA, each color channel with [0-1] range
+        # matplotlib cmap function maps [0-1] input to RGB, each color channel with [0-1] range
         cm_mpl = plt.get_cmap(cmap)
-        # convert output RGBA colors on [0-1] range to [0-255] range used by gdaldem
-        cm = lambda x: [val * 255 for val in cm_mpl(x)]
+        # convert output RGB colors on [0-1] range to [1-255] range used by gdaldem (reserving 0 for nodata)
+        cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
         # make cmap text file to be read by gdaldem color-relief
         cmap_txt = f'{self.dem_name}_cmap.txt'
         with open(cmap_txt, 'w') as f:
             lines = [f'{elev} {" ".join(map(str, cm(elev_to_x(elev))))}\n' for elev in elevations]
-            lines.append("nv 0 0 0 0\n")
+            lines.append("nv 0 0 0\n")
             f.writelines(lines)
         return cmap_txt
 
@@ -443,14 +446,14 @@ class RasterViz(object):
 if __name__ == "__main__":
     # example Python run here
     """
-    dem = './test_dems/output_GMRT.tif'
+    dem = './test_dems/well.tif'
     viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
-    # viz.make_hillshade(multidirectional=True)
-    # viz.make_color_relief(cmap='gist_earth')
-    # viz.make_slope()
-    # viz.make_aspect()
-    # viz.make_roughness()
+    viz.make_hillshade(multidirectional=True)
+    viz.make_color_relief(cmap='gist_earth')
+    viz.make_slope()
+    viz.make_aspect()
+    viz.make_roughness()
     """
 
     argv = sys.argv
