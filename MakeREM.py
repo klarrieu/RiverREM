@@ -6,7 +6,8 @@ import gdal
 import osr
 import ogr
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
-from scipy.spatial import cKDTree as KDTree
+from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
+import seaborn as sn  # for nice color palettes
 import subprocess
 import time
 from RasterViz import RasterViz
@@ -15,26 +16,140 @@ from RasterViz import RasterViz
 start = time.time()
 
 
+class REMViz(RasterViz):
+    """An extension of RasterViz to view REMs"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _png_kmz_checker(func):
+        """Used as a wrapper for making viz products, making png and kmz after tif if selected"""
+        def wrapper(self, *args, **kwargs):
+            try:
+                # call decorated method
+                self.proj = self.viz_srs
+                ras_path = func(self, *args, **kwargs)
+                print(f"Saved {ras_path}.")
+                # make png and kmz if applicable
+                if self.make_png:
+                    png_path = self.raster_to_png(ras_path)
+                    print(f"Saved {png_path}.")
+                if self.make_kmz:
+                    kmz_path = self.raster_to_kmz(ras_path)
+                    print(f"Saved {kmz_path}.")
+            except Exception as e:
+                raise Exception(e)
+            finally:
+                # clean up regardless of whether something failed
+                self.clean_up()
+            return
+        return wrapper
+
+    @_png_kmz_checker
+    def make_hillshade_color(self, *args, **kwargs):
+        """Make a pretty composite hillshade/color-relief image"""
+        # make hillshade and/or color-relief if haven't already
+        # temp variables to override make_png, make_kmz
+        _make_png, _make_kmz = self.make_png, self.make_kmz
+        self.make_png = self.make_kmz = False
+        if not os.path.exists(self.hillshade_ras):
+            self.make_hillshade(*args, **kwargs)
+        if not os.path.exists(self.color_relief_ras):
+            self.make_color_relief(*args, **kwargs)
+        self.make_png, self.make_kmz = _make_png, _make_kmz
+
+        print("\nMaking hillshade-color composite raster.")
+        # blend images using GDAL and numpy to linearly interpolate RGB values
+        temp_path = self.blend_images(blend_percent=45)
+        out_path = f"{self.dem_name}_hillshade-color{self.ext}"
+        self.tile_and_compress(temp_path, out_path)
+        # set nodata value to 0 for color-relief
+        r = gdal.Open(out_path, gdal.GA_Update)
+        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
+        return out_path
+
+    def make_color_relief(self, cmap='mako_r', *args, **kwargs):
+        """
+        Make color relief map from DEM (4 band RGBA raster)
+        :param cmap: str, matplotlib colormap to use for making color relief map.
+                     (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+        """
+        print(f"\nMaking color relief map with cmap={cmap}.")
+        temp_path = self.intermediate_rasters["color-relief"]
+        out_path = self.color_relief_ras
+        cmap_txt = self.get_cmap_txt(cmap)
+        cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
+              f"-of {self.out_format}"
+        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        self.tile_and_compress(temp_path, out_path)
+        # set nodata value to 0 for color-relief
+        r = gdal.Open(out_path, gdal.GA_Update)
+        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
+        return out_path
+
+    def get_cmap_txt(self, cmap='mako_r'):
+        min_elev, max_elev = self.get_elev_range()
+        # sample 256 evenly log-spaced elevation values
+        elevations = np.logspace(0, np.log10(max_elev), 256) - 1
+        # matplotlib cmap function maps [0-255] input to RGB
+        cm_mpl = sn.color_palette(cmap, as_cmap=True)
+        # convert output RGB colors on [0-255] range to [1-255] range used by gdaldem (reserving 0 for nodata)
+        cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
+        # make cmap text file to be read by gdaldem color-relief
+        cmap_txt = f'{self.dem_name}_cmap.txt'
+        with open(cmap_txt, 'w') as f:
+            lines = [f'{elev} {" ".join(map(str, cm(i)))}\n' for i, elev in enumerate(elevations)]
+            lines.append("nv 0 0 0\n")
+            f.writelines(lines)
+        return cmap_txt
+
+    def blend_images(self, blend_percent=60):
+        """
+        Blend hillshade and color-relief rasters by linearly interpolating RGB values
+        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight [0-100]. Default 60.
+        """
+        b = blend_percent / 100
+        # read in hillshade and color relief rasters as arrays
+        hs = gdal.Open(self.hillshade_ras, gdal.GA_ReadOnly)
+        cr = gdal.Open(self.color_relief_ras, gdal.GA_ReadOnly)
+        hs_array = hs.ReadAsArray()   # singleband (m, n)
+        cr_arrays = cr.ReadAsArray()  # RGBA       (4, m, n)
+        # make a copy of color-relief raster
+        driver = gdal.GetDriverByName(self.out_format)
+        blend_ras_name = self.intermediate_rasters["hillshade-color"]
+        blend_ras = driver.CreateCopy(blend_ras_name, cr, strict=0)
+        # linearly interpolate between hillshade and color-relief RGB values (keeping alpha channel from color-relief)
+        for i in range(3):
+            blended_band = np.where((hs_array != 0) & (cr_arrays[i] != 0), b * hs_array + (1 - b) * cr_arrays[i], 0)
+            blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
+        return blend_ras_name
+
+
 class REMMaker(object):
     """
     An attempt to automatically make river REM from DEM
 
     TODO:
-        - improve longest river identification by cropping geometries to DEM domain
-        - play with interpolation parameters to get nice smoothness
-        - use eps arg for kd-tree query to speedup?
-        - ensure when dem_array is created that nodata values are np.nan
+        - try to set k nearest neighbors based on total pixels / centerline pixels or something similar
+        - or possibly downsample the centerline interpolation data to cap the number of nearest neighbors?
         - make interpolation more efficient for querying rasters with large nodata areas by only interpolating valid DEM pixels
-        - blend color-relief of REM with hillshade of original DEM
-        - use hypsographic analysis/quantiles to scale colormap range nicely? max out color ramp not too far above bank to avoid interpolation artefacts
+        - remove centerline pixels from sampling if they are nans
+        - improve longest river identification by cropping geometries to DEM domain
     """
-    def __init__(self, dem):
+    def __init__(self, dem, k=100, eps=0.1, workers=4):
+        """
+        :param dem: str, path to DEM raster
+        :param k: int, number of nearest neighbors to use for interpolation
+        :param eps: float, fractional tolerance for errors in kd tree query
+        :param workers: int, number of CPU threads to use for interpolation. -1 = all threads.
+        """
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
         self.proj, self.epsg_code = self.get_projection()
         # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
         self.bbox = self.get_bbox()
-        self.run()
+        self.k = k
+        self.eps = eps
+        self.workers = workers
 
     @property
     def dem(self):
@@ -45,7 +160,6 @@ class REMMaker(object):
         if not os.path.exists(dem):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
-        self.get_dem_coords()
         return self._dem
 
     def get_projection(self):
@@ -197,14 +311,28 @@ class REMMaker(object):
         tree = KDTree(c_sampled)
         # find k nearest neighbors
         print("Querying tree")
-        # eps is fractional distance error tolerance on estimate of nearest neighbor distances, speeds up calculation
-        distances, indices = tree.query(c_interpolate, k=20, eps=0.1, n_jobs=4)
-        # interpolate (IDW with power = 1)
-        print("Making interpolated WSE array")
-        weights = 1 / distances
-        weights = weights / weights.sum(axis=1).reshape(-1, 1)
-        interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)
-        self.wse_interp_array = interpolated_values.reshape(np.shape(self.dem_array))
+        try:
+            distances, indices = tree.query(c_interpolate, k=self.k, eps=self.eps, n_jobs=self.workers)
+            # interpolate (IDW with power = 1)
+            print("Making interpolated WSE array")
+            weights = 1 / distances
+            weights = weights / weights.sum(axis=1).reshape(-1, 1)
+            interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)
+            self.wse_interp_array = interpolated_values.reshape(np.shape(self.dem_array))
+        except MemoryError:
+            print("WARNING: Large dataset. Chunking query...")
+            chunk_size = 1e6
+            # iterate over chunks
+            chunk_count = c_interpolate.shape[0] // chunk_size
+            interpolated_values = np.array([])
+            for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
+                print(f"{i / chunk_count * 100:.2f}%")
+                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
+                weights = 1 / distances
+                weights = weights / weights.sum(axis=1).reshape(-1, 1)
+                interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
+            self.wse_interp_array = interpolated_values.reshape(np.shape(self.dem_array))
+
         # interpolation scheme causes divide by zero at sampled pixels, overwrite the nans to elevation values there
         river_elev_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
         self.wse_interp_array = np.where(np.isnan(self.wse_interp_array), river_elev_array, self.wse_interp_array)
@@ -215,12 +343,6 @@ class REMMaker(object):
         print("\nDetrending DEM.")
         self.rem_array = self.dem_array - self.wse_interp_array
 
-        # plot quantiles to help guide color mapping
-        import matplotlib.pyplot as plt
-        rem_vals = self.rem_array[~np.isnan(self.rem_array)]
-        plt.hist(rem_vals, bins=1000, histtype='step')
-        plt.show()
-
         self.rem_ras = f"{self.dem_name}_REM.tif"
         # make copy of DEM raster
         r = gdal.Open(self.dem, gdal.GA_ReadOnly)
@@ -230,33 +352,21 @@ class REMMaker(object):
         rem.GetRasterBand(1).WriteArray(self.rem_array)
         return self.rem_ras
 
-    def make_colormap(self):
-        """
-        Make colormap for REM based on natural breakpoints
-
-        possible schemes:
-            - make color scale logarithmic: 0, 1, 10, 20 seems to work well?
-            - make breaks based on peaks in hypsograph
-                - normalize hypsograph based on number of pixels in centerline, percentiles corresponding to n times that pixel count
-        """
-        river_pixels = self.centerline_array.sum()
-
-
-
     def make_image_blend(self):
         """Blend REM with DEM hillshade to make pretty finished product"""
         print("\nBlending REM with hillshade.")
         # make hillshade of original DEM
-        dem_viz = RasterViz(self.dem, out_ext=".tif", )
+        dem_viz = RasterViz(self.dem, out_ext=".tif")
         dem_viz.make_hillshade(multidirectional=True)
         # make hillshdae color using hillshade from DEM and color-relief from REM
-        rem_viz = RasterViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
+        rem_viz = REMViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
         rem_viz.hillshade_ras = dem_viz.hillshade_ras
-        rem_viz.make_hillshade_color(cmap='terrain')
+        rem_viz.make_hillshade_color()
         return
 
     def run(self):
         """Make pretty REM/hillshade blend from DEM"""
+        self.get_dem_coords()
         self.get_river_centerline()
         self.get_river_elev()
         self.interp_river_elev()
@@ -266,8 +376,11 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/yukon_flats.tif"
-    rem_maker = REMMaker(dem=dem)
+    dem = "./test_dems/sc_river.tin.tif"
+    rem_maker = REMMaker(dem=dem, k=100, eps=0.1, workers=4)
+    rem_maker.run()
+    # rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
+    # rem_maker.make_image_blend()
 
     end = time.time()
     print(f'\nDone.\nRan in {end - start:.0f} s.')
