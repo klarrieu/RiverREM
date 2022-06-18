@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 import os
-import sys
 import numpy as np
 import gdal
 import osr
@@ -26,7 +25,7 @@ class REMViz(RasterViz):
         def wrapper(self, *args, **kwargs):
             try:
                 # call decorated method
-                self.proj = self.viz_srs
+                self.proj = self.viz_srs  # don't do transform
                 ras_path = func(self, *args, **kwargs)
                 print(f"Saved {ras_path}.")
                 # make png and kmz if applicable
@@ -89,7 +88,7 @@ class REMViz(RasterViz):
     def get_cmap_txt(self, cmap='mako_r'):
         min_elev, max_elev = self.get_elev_range()
         # sample 256 evenly log-spaced elevation values
-        elevations = np.logspace(0, np.log10(max_elev), 256) - 1
+        elevations = np.logspace(0, np.log10(0.5 * max_elev), 256) - 1
         # matplotlib cmap function maps [0-255] input to RGB
         cm_mpl = sn.color_palette(cmap, as_cmap=True)
         # convert output RGB colors on [0-255] range to [1-255] range used by gdaldem (reserving 0 for nodata)
@@ -129,16 +128,19 @@ class REMMaker(object):
     An attempt to automatically make river REM from DEM
 
     TODO:
+        - make into CLI util
         - try to set k nearest neighbors based on total pixels / centerline pixels or something similar
         - or possibly downsample the centerline interpolation data to cap the number of nearest neighbors?
         - make interpolation more efficient for querying rasters with large nodata areas by only interpolating valid DEM pixels
-        - remove centerline pixels from sampling if they are nans
-        - improve longest river identification by cropping geometries to DEM domain
+        - remove centerline pixels from sampling if they are nans (or fill holes?)
+        - improve longest river identification by cropping geometries to DEM domain?
+            - but even cropping to extent would not necessarily crop to valid data pixels...
+        - error handling if rivers but no named rivers?
+        - handling geographic coord system
     """
-    def __init__(self, dem, k=100, eps=0.1, workers=4):
+    def __init__(self, dem, eps=0.1, workers=4):
         """
         :param dem: str, path to DEM raster
-        :param k: int, number of nearest neighbors to use for interpolation
         :param eps: float, fractional tolerance for errors in kd tree query
         :param workers: int, number of CPU threads to use for interpolation. -1 = all threads.
         """
@@ -147,7 +149,6 @@ class REMMaker(object):
         self.proj, self.epsg_code = self.get_projection()
         # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
         self.bbox = self.get_bbox()
-        self.k = k
         self.eps = eps
         self.workers = workers
 
@@ -188,17 +189,19 @@ class REMMaker(object):
         """Find centerline of river(s) within DEM area using OSM Ways"""
         print("\nFinding river centerline.")
         # get OSM Ways within bbox of DEM (returns geopandas geodataframe)
-        self.ways = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
-        self.ways = self.ways.dropna(subset=['name'])
-        # get all natural waterways in domain
-        osmids = ["W" + str(i[1]) for i in self.ways.index]
-        names = self.ways.name.values
+        self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
+        if len(self.rivers) == 0:
+            raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMaps.")
         # read into geodataframe with same CRS as DEM
-        self.rivers = osmnx.geocode_to_gdf(osmids, by_osmid=True).to_crs(epsg=self.epsg_code)
-        # carry over name attribute from OSM ways
+        self.rivers = self.rivers.to_crs(epsg=self.epsg_code)
+        # get river names (drop ones without a name)
+        self.rivers = self.rivers.dropna(subset=['name'])
+        names = self.rivers.name.values
+        # make name attribute more distinct to avoid conflict with geometry name attribute
         self.rivers['river_name'] = names
         # get unique names
         river_names = set(names)
+        # integer id corresponding to each river name
         self.river_ids = {name: i + 1 for i, name in enumerate(river_names)}
         self.rivers['river_id'] = [self.river_ids[name] for name in names]
         print(f"Found river(s): {', '.join(river_names)}")
@@ -284,7 +287,7 @@ class REMMaker(object):
         # raster to numpy array same shape as DEM
         r = gdal.Open(centerline_ras, gdal.GA_ReadOnly)
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
-        # TODO: identify river with most active pixels in DEM domain (use that one to make REM)
+        # identify river with most active pixels in DEM domain (use that one to make REM)
         pixel_counts = {}
         for river_name, id in self.river_ids.items():
             pixel_count = len(self.centerline_array[self.centerline_array == id])
@@ -299,9 +302,25 @@ class REMMaker(object):
         self.river_wses = self.dem_array[np.where(self.centerline_array == 1)]
         return
 
+    def guess_k(self):
+        """Determine the number of k nearest neighbors to use for interpolation"""
+        area = np.where(self.dem_array > 0, 1, 0).sum()
+        river_pixels = len(self.centerline_array[self.centerline_array == 1])
+        # a crude estimte of sinuosity, seems to be preserved across resolutions
+        area_ratio = river_pixels / np.sqrt(area)
+        # use a percentage of total river pixels times area ratio
+        k = int(river_pixels / 1e3 * area_ratio / 2)
+        print(f"guessing k = {k}")
+        # make k be a minimum of 5, maximum of 100
+        k = min(100, max(5, k))
+        return k
+
+
     def interp_river_elev(self):
         """Interpolate elevation at river centerline across DEM extent."""
         print("\nInterpolating river elevation across DEM extent.")
+        k = self.guess_k()
+        print(f"Using k = {k} nearest neighbors.")
         # coords of sampled pixels along centerline
         c_sampled = np.array([self.river_x_coords, self.river_y_coords]).T
         # coords to interpolate over
@@ -312,7 +331,7 @@ class REMMaker(object):
         # find k nearest neighbors
         print("Querying tree")
         try:
-            distances, indices = tree.query(c_interpolate, k=self.k, eps=self.eps, n_jobs=self.workers)
+            distances, indices = tree.query(c_interpolate, k=k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
             print("Making interpolated WSE array")
             weights = 1 / distances
@@ -327,7 +346,7 @@ class REMMaker(object):
             interpolated_values = np.array([])
             for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
                 print(f"{i / chunk_count * 100:.2f}%")
-                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
+                distances, indices = tree.query(chunk, k=k, eps=self.eps, n_jobs=self.workers)
                 weights = 1 / distances
                 weights = weights / weights.sum(axis=1).reshape(-1, 1)
                 interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
@@ -357,7 +376,7 @@ class REMMaker(object):
         print("\nBlending REM with hillshade.")
         # make hillshade of original DEM
         dem_viz = RasterViz(self.dem, out_ext=".tif")
-        dem_viz.make_hillshade(multidirectional=True)
+        dem_viz.make_hillshade(multidirectional=True, z=2)
         # make hillshdae color using hillshade from DEM and color-relief from REM
         rem_viz = REMViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
         rem_viz.hillshade_ras = dem_viz.hillshade_ras
@@ -376,11 +395,11 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/sc_river.tin.tif"
-    rem_maker = REMMaker(dem=dem, k=100, eps=0.1, workers=4)
+    dem = "./test_dems/susitna_large.tin.tif"
+    rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
-    # rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
-    # rem_maker.make_image_blend()
+    #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
+    #rem_maker.make_image_blend()
 
     end = time.time()
     print(f'\nDone.\nRan in {end - start:.0f} s.')
