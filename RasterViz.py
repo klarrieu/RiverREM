@@ -6,7 +6,7 @@ import osr
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None  # to avoid decompression bomb warnings when reading large images
 import subprocess
-import matplotlib.pyplot as plt
+import seaborn as sn
 import numpy as np
 import time
 start = time.time()  # track time for script to finish
@@ -150,28 +150,6 @@ class RasterViz(object):
         self._check_dem_nodata()
         return self._dem
 
-    def _png_kmz_checker(func):
-        """Used as a wrapper for making viz products, making png and kmz after tif if selected"""
-        def wrapper(self, *args, **kwargs):
-            try:
-                # call decorated method
-                ras_path = func(self, *args, **kwargs)
-                print(f"Saved {ras_path}.")
-                # make png and kmz if applicable
-                if self.make_png:
-                    png_path = self.raster_to_png(ras_path)
-                    print(f"Saved {png_path}.")
-                if self.make_kmz:
-                    kmz_path = self.raster_to_kmz(ras_path)
-                    print(f"Saved {kmz_path}.")
-            except Exception as e:
-                raise Exception(e)
-            finally:
-                # clean up regardless of whether something failed
-                self.clean_up()
-            return
-        return wrapper
-
     def asc_to_tif(self, asc):
         """Convert ascii grid to geotiff"""
         tif_name = os.path.basename(asc).split('.')[0] + ".tif"
@@ -194,12 +172,34 @@ class RasterViz(object):
             # if there are np.nans in raster, set those values to our newly assigned nodata value (0)
             if np.any(np.isnan(band.ReadAsArray())):
                 print("Writing nans to assigned nodata value...")
-                #arr = dem_copy.GetRasterBand(1).ReadAsArray()
-                #arr = np.where(np.isnan(arr), 0, arr)
-                #band.WriteArray(arr)
+                arr = dem_copy.GetRasterBand(1).ReadAsArray()
+                arr = np.where(np.isnan(arr), 0, arr)
+                band.WriteArray(arr)
             # use copy as input DEM
             self._dem = dem_copy_name
         return
+
+    def _png_kmz_checker(func):
+        """Used as a wrapper for making viz products, making png and kmz after tif if selected"""
+        def wrapper(self, *args, **kwargs):
+            try:
+                # call decorated method
+                ras_path = func(self, *args, **kwargs)
+                print(f"Saved {ras_path}.")
+                # make png and kmz if applicable
+                if self.make_png:
+                    png_path = self.raster_to_png(ras_path)
+                    print(f"Saved {png_path}.")
+                if self.make_kmz:
+                    kmz_path = self.raster_to_kmz(ras_path)
+                    print(f"Saved {kmz_path}.")
+            except Exception as e:
+                raise Exception(e)
+            finally:
+                # clean up regardless of whether something failed
+                self.clean_up()
+            return
+        return wrapper
 
     @_png_kmz_checker
     def make_hillshade(self, z=1, alt=45, azim=315, multidirectional=False, *args, **kwargs):
@@ -262,16 +262,18 @@ class RasterViz(object):
         return out_path
 
     @_png_kmz_checker
-    def make_color_relief(self, cmap='terrain', *args, **kwargs):
+    def make_color_relief(self, cmap='terrain', log_scale=False, *args, **kwargs):
         """
         Make color relief map from DEM (4 band RGBA raster)
         :param cmap: str, matplotlib colormap to use for making color relief map.
                      (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+        :param log_scale: bool, makes the colormap on a log scale from zero, so terrain closer to 0 elevation
+                          has greater color variation. Intended to be used for REMs or coastal datasets.
         """
         print(f"\nMaking color relief map with cmap={cmap}.")
         temp_path = self.intermediate_rasters["color-relief"]
         out_path = self.color_relief_ras
-        cmap_txt = self.get_cmap_txt(cmap)
+        cmap_txt = self.get_cmap_txt(cmap, log_scale=log_scale)
         cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
                 f"-of {self.out_format}"
         subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
@@ -282,7 +284,7 @@ class RasterViz(object):
         return out_path
 
     @_png_kmz_checker
-    def make_hillshade_color(self, *args, **kwargs):
+    def make_hillshade_color(self, blend_percent=60, *args, **kwargs):
         """Make a pretty composite hillshade/color-relief image"""
         # make hillshade and/or color-relief if haven't already
         # temp variables to override make_png, make_kmz
@@ -296,7 +298,7 @@ class RasterViz(object):
 
         print("\nMaking hillshade-color composite raster.")
         # blend images using GDAL and numpy to linearly interpolate RGB values
-        temp_path = self.blend_images()
+        temp_path = self.blend_images(blend_percent=blend_percent)
         out_path = f"{self.dem_name}_hillshade-color{self.ext}"
         self.tile_and_compress(temp_path, out_path)
         # set nodata value to 0 for color-relief
@@ -325,27 +327,31 @@ class RasterViz(object):
             blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
         return blend_ras_name
 
-    def get_cmap_txt(self, cmap='terrain'):
+    def get_cmap_txt(self, cmap='terrain', log_scale=False):
         """
         Make a matplotlib named colormap into a gdaldem
         colormap text file for color-relief mapping.
         Format is "elevation R G B" where RGB are in [0-255] range
         :param cmap: colormap to use for making color relief map.
+        :param log_scale: bool, logarithmically scale colormap, showing greatest color variation at zero elevation.
+                          Intended to be used for REMs or coastal datasets.
         :return: .txt file containing colormap mapped to DEM
         """
         min_elev, max_elev = self.get_elev_range()
-        # sample 255 evenly spaced elevation values
-        elevations = np.linspace(min_elev, max_elev, 255)
-        # function to convert elevations to [0-1] range (domain for cmap function)
-        elev_to_x = lambda x: (x - min_elev) / (max_elev - min_elev)
-        # matplotlib cmap function maps [0-1] input to RGB, each color channel with [0-1] range
-        cm_mpl = plt.get_cmap(cmap)
+        if log_scale:
+            # sample 255 log-spaced elevation values from 0 to max elevation / 2
+            elevations = np.logspace(0, np.log10(0.5 * max_elev), 255) - 1
+        else:
+            # sample 255 linearly spaced elevation values
+            elevations = np.linspace(min_elev, max_elev, 255)
+        # matplotlib cmap function maps [0-255] input to RGB values [0-1]
+        cm_mpl = sn.color_palette(cmap, as_cmap=True)
         # convert output RGB colors on [0-1] range to [1-255] range used by gdaldem (reserving 0 for nodata)
         cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
         # make cmap text file to be read by gdaldem color-relief
         cmap_txt = f'{self.dem_name}_cmap.txt'
         with open(cmap_txt, 'w') as f:
-            lines = [f'{elev} {" ".join(map(str, cm(elev_to_x(elev))))}\n' for elev in elevations]
+            lines = [f'{elev} {" ".join(map(str, cm(i)))}\n' for i, elev in enumerate(elevations)]
             lines.append("nv 0 0 0\n")
             f.writelines(lines)
         return cmap_txt

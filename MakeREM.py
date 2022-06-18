@@ -15,126 +15,15 @@ from RasterViz import RasterViz
 start = time.time()
 
 
-class REMViz(RasterViz):
-    """An extension of RasterViz to view REMs"""
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def _png_kmz_checker(func):
-        """Used as a wrapper for making viz products, making png and kmz after tif if selected"""
-        def wrapper(self, *args, **kwargs):
-            try:
-                # call decorated method
-                self.proj = self.viz_srs  # don't do transform
-                ras_path = func(self, *args, **kwargs)
-                print(f"Saved {ras_path}.")
-                # make png and kmz if applicable
-                if self.make_png:
-                    png_path = self.raster_to_png(ras_path)
-                    print(f"Saved {png_path}.")
-                if self.make_kmz:
-                    kmz_path = self.raster_to_kmz(ras_path)
-                    print(f"Saved {kmz_path}.")
-            except Exception as e:
-                raise Exception(e)
-            finally:
-                # clean up regardless of whether something failed
-                self.clean_up()
-            return
-        return wrapper
-
-    @_png_kmz_checker
-    def make_hillshade_color(self, *args, **kwargs):
-        """Make a pretty composite hillshade/color-relief image"""
-        # make hillshade and/or color-relief if haven't already
-        # temp variables to override make_png, make_kmz
-        _make_png, _make_kmz = self.make_png, self.make_kmz
-        self.make_png = self.make_kmz = False
-        if not os.path.exists(self.hillshade_ras):
-            self.make_hillshade(*args, **kwargs)
-        if not os.path.exists(self.color_relief_ras):
-            self.make_color_relief(*args, **kwargs)
-        self.make_png, self.make_kmz = _make_png, _make_kmz
-
-        print("\nMaking hillshade-color composite raster.")
-        # blend images using GDAL and numpy to linearly interpolate RGB values
-        temp_path = self.blend_images(blend_percent=45)
-        out_path = f"{self.dem_name}_hillshade-color{self.ext}"
-        self.tile_and_compress(temp_path, out_path)
-        # set nodata value to 0 for color-relief
-        r = gdal.Open(out_path, gdal.GA_Update)
-        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
-        return out_path
-
-    def make_color_relief(self, cmap='mako_r', *args, **kwargs):
-        """
-        Make color relief map from DEM (4 band RGBA raster)
-        :param cmap: str, matplotlib colormap to use for making color relief map.
-                     (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
-        """
-        print(f"\nMaking color relief map with cmap={cmap}.")
-        temp_path = self.intermediate_rasters["color-relief"]
-        out_path = self.color_relief_ras
-        cmap_txt = self.get_cmap_txt(cmap)
-        cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
-              f"-of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
-        self.tile_and_compress(temp_path, out_path)
-        # set nodata value to 0 for color-relief
-        r = gdal.Open(out_path, gdal.GA_Update)
-        [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
-        return out_path
-
-    def get_cmap_txt(self, cmap='mako_r'):
-        min_elev, max_elev = self.get_elev_range()
-        # sample 256 evenly log-spaced elevation values
-        elevations = np.logspace(0, np.log10(0.5 * max_elev), 256) - 1
-        # matplotlib cmap function maps [0-255] input to RGB
-        cm_mpl = sn.color_palette(cmap, as_cmap=True)
-        # convert output RGB colors on [0-255] range to [1-255] range used by gdaldem (reserving 0 for nodata)
-        cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
-        # make cmap text file to be read by gdaldem color-relief
-        cmap_txt = f'{self.dem_name}_cmap.txt'
-        with open(cmap_txt, 'w') as f:
-            lines = [f'{elev} {" ".join(map(str, cm(i)))}\n' for i, elev in enumerate(elevations)]
-            lines.append("nv 0 0 0\n")
-            f.writelines(lines)
-        return cmap_txt
-
-    def blend_images(self, blend_percent=60):
-        """
-        Blend hillshade and color-relief rasters by linearly interpolating RGB values
-        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight [0-100]. Default 60.
-        """
-        b = blend_percent / 100
-        # read in hillshade and color relief rasters as arrays
-        hs = gdal.Open(self.hillshade_ras, gdal.GA_ReadOnly)
-        cr = gdal.Open(self.color_relief_ras, gdal.GA_ReadOnly)
-        hs_array = hs.ReadAsArray()   # singleband (m, n)
-        cr_arrays = cr.ReadAsArray()  # RGBA       (4, m, n)
-        # make a copy of color-relief raster
-        driver = gdal.GetDriverByName(self.out_format)
-        blend_ras_name = self.intermediate_rasters["hillshade-color"]
-        blend_ras = driver.CreateCopy(blend_ras_name, cr, strict=0)
-        # linearly interpolate between hillshade and color-relief RGB values (keeping alpha channel from color-relief)
-        for i in range(3):
-            blended_band = np.where((hs_array != 0) & (cr_arrays[i] != 0), b * hs_array + (1 - b) * cr_arrays[i], 0)
-            blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
-        return blend_ras_name
-
-
 class REMMaker(object):
     """
     An attempt to automatically make river REM from DEM
 
     TODO:
         - make into CLI util
-        - try to set k nearest neighbors based on total pixels / centerline pixels or something similar
-        - or possibly downsample the centerline interpolation data to cap the number of nearest neighbors?
+        - test guess_k method, see if it works well on a variety of datasets
         - make interpolation more efficient for querying rasters with large nodata areas by only interpolating valid DEM pixels
-        - remove centerline pixels from sampling if they are nans (or fill holes?)
-        - improve longest river identification by cropping geometries to DEM domain?
-            - but even cropping to extent would not necessarily crop to valid data pixels...
+        - crop rivers shapefile to DEM extent
         - error handling if rivers but no named rivers?
         - handling geographic coord system
     """
@@ -287,6 +176,8 @@ class REMMaker(object):
         # raster to numpy array same shape as DEM
         r = gdal.Open(centerline_ras, gdal.GA_ReadOnly)
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
+        # remove cells where DEM is null
+        self.centerline_array = np.where(self.dem_array > 0 , self.centerline_array, np.nan)
         # identify river with most active pixels in DEM domain (use that one to make REM)
         pixel_counts = {}
         for river_name, id in self.river_ids.items():
@@ -379,8 +270,9 @@ class REMMaker(object):
         dem_viz.make_hillshade(multidirectional=True, z=2)
         # make hillshdae color using hillshade from DEM and color-relief from REM
         rem_viz = REMViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
-        rem_viz.hillshade_ras = dem_viz.hillshade_ras
-        rem_viz.make_hillshade_color()
+        rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
+        rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
+        rem_viz.make_hillshade_color(cmap='mako_r', log_scale=True, blend_percent=45)
         return
 
     def run(self):
