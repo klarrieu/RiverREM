@@ -22,10 +22,9 @@ class REMMaker(object):
     TODO:
         - make into CLI util
         - test guess_k method, see if it works well on a variety of datasets
-        - make interpolation more efficient for querying rasters with large nodata areas by only interpolating valid DEM pixels
         - crop rivers shapefile to DEM extent
         - error handling if rivers but no named rivers?
-        - handling geographic coord system
+        - handling geographic coord system?
     """
     def __init__(self, dem, eps=0.1, workers=4):
         """
@@ -150,7 +149,6 @@ class REMMaker(object):
             self.dem_array = np.where(self.dem_array == self.nodata_val, np.nan, self.dem_array)
         rows, cols = np.shape(self.dem_array)
         # get dimensions of raster
-        # TODO: account for rotation?
         (upper_left_x, x_size, x_rotation, upper_left_y, y_rotation, y_size) = r.GetGeoTransform()
         self.cell_w, self.cell_h = x_size, y_size
         min_x, max_x = sorted([upper_left_x, upper_left_x + x_size * cols])
@@ -177,7 +175,7 @@ class REMMaker(object):
         r = gdal.Open(centerline_ras, gdal.GA_ReadOnly)
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
         # remove cells where DEM is null
-        self.centerline_array = np.where(self.dem_array > 0 , self.centerline_array, np.nan)
+        self.centerline_array = np.where(np.isnan(self.dem_array), np.nan, self.centerline_array)
         # identify river with most active pixels in DEM domain (use that one to make REM)
         pixel_counts = {}
         for river_name, id in self.river_ids.items():
@@ -195,12 +193,12 @@ class REMMaker(object):
 
     def guess_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
-        area = np.where(self.dem_array > 0, 1, 0).sum()
+        area = np.where(np.isnan(self.dem_array), 0, 1).sum()
         river_pixels = len(self.centerline_array[self.centerline_array == 1])
         # a crude estimte of sinuosity, seems to be preserved across resolutions
         area_ratio = river_pixels / np.sqrt(area)
         # use a percentage of total river pixels times area ratio
-        k = int(river_pixels / 1e3 * area_ratio / 2)
+        k = int(river_pixels / 1e3 * area_ratio * 2)
         print(f"guessing k = {k}")
         # make k be a minimum of 5, maximum of 100
         k = min(100, max(5, k))
@@ -213,9 +211,10 @@ class REMMaker(object):
         k = self.guess_k()
         print(f"Using k = {k} nearest neighbors.")
         # coords of sampled pixels along centerline
-        c_sampled = np.array([self.river_x_coords, self.river_y_coords]).T
-        # coords to interpolate over
-        c_interpolate = np.dstack(np.array([self.xs_array, self.ys_array])).reshape(-1, 2)
+        c_sampled = np.dstack((self.river_x_coords, self.river_y_coords))
+        # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation is 0))
+        interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
+        c_interpolate = np.dstack((self.xs_array[interp_indices], self.ys_array[interp_indices]))
         # create 2D tree
         print("Constructing tree")
         tree = KDTree(c_sampled)
@@ -225,10 +224,9 @@ class REMMaker(object):
             distances, indices = tree.query(c_interpolate, k=k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
             print("Making interpolated WSE array")
-            weights = 1 / distances
-            weights = weights / weights.sum(axis=1).reshape(-1, 1)
-            interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)
-            self.wse_interp_array = interpolated_values.reshape(np.shape(self.dem_array))
+            weights = 1 / distances  # weight river elevations by 1 / distance
+            weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
+            interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)  # apply weights
         except MemoryError:
             print("WARNING: Large dataset. Chunking query...")
             chunk_size = 1e6
@@ -241,11 +239,11 @@ class REMMaker(object):
                 weights = 1 / distances
                 weights = weights / weights.sum(axis=1).reshape(-1, 1)
                 interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
-            self.wse_interp_array = interpolated_values.reshape(np.shape(self.dem_array))
 
-        # interpolation scheme causes divide by zero at sampled pixels, overwrite the nans to elevation values there
-        river_elev_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
-        self.wse_interp_array = np.where(np.isnan(self.wse_interp_array), river_elev_array, self.wse_interp_array)
+        # create interpolated WSE array as elevations along centerline, nans everywhere else
+        self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
+        # add the interpolated eleation values
+        self.wse_interp_array[interp_indices] = interpolated_values
         return
 
     def detrend_dem(self):
@@ -269,7 +267,7 @@ class REMMaker(object):
         dem_viz = RasterViz(self.dem, out_ext=".tif")
         dem_viz.make_hillshade(multidirectional=True, z=2)
         # make hillshdae color using hillshade from DEM and color-relief from REM
-        rem_viz = REMViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
+        rem_viz = RasterViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
         rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
         rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
         rem_viz.make_hillshade_color(cmap='mako_r', log_scale=True, blend_percent=45)
@@ -287,7 +285,7 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/susitna_large.tin.tif"
+    dem = "./test_dems/duchesne_1m.tif"
     rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
