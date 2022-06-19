@@ -21,14 +21,16 @@ class REMMaker(object):
 
     TODO:
         - make into CLI util
-        - test guess_k method, see if it works well on a variety of datasets
+        - test estimate_k method, see if it works well on a variety of datasets
         - crop rivers shapefile to DEM extent
         - error handling if rivers but no named rivers?
         - handling geographic coord system?
     """
-    def __init__(self, dem, eps=0.1, workers=4):
+    def __init__(self, dem, cmap='mako_r', k=None, eps=0.1, workers=4):
         """
         :param dem: str, path to DEM raster
+        :param cmap: str, name of matplotlib/seaborn colormap to use for REM coloring
+        :param k: int, number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.
         :param eps: float, fractional tolerance for errors in kd tree query
         :param workers: int, number of CPU threads to use for interpolation. -1 = all threads.
         """
@@ -37,6 +39,8 @@ class REMMaker(object):
         self.proj, self.epsg_code = self.get_projection()
         # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
         self.bbox = self.get_bbox()
+        self.cmap = cmap
+        self.k = k
         self.eps = eps
         self.workers = workers
 
@@ -191,7 +195,7 @@ class REMMaker(object):
         self.river_wses = self.dem_array[np.where(self.centerline_array == 1)]
         return
 
-    def guess_k(self):
+    def estimate_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
         area = np.where(np.isnan(self.dem_array), 0, 1).sum()
         river_pixels = len(self.centerline_array[self.centerline_array == 1])
@@ -208,8 +212,9 @@ class REMMaker(object):
     def interp_river_elev(self):
         """Interpolate elevation at river centerline across DEM extent."""
         print("\nInterpolating river elevation across DEM extent.")
-        k = self.guess_k()
-        print(f"Using k = {k} nearest neighbors.")
+        if not self.k:
+            self.k = self.estimate_k()
+        print(f"Using k = {self.k} nearest neighbors.")
         # coords of sampled pixels along centerline
         c_sampled = np.column_stack((self.river_x_coords, self.river_y_coords))
         # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation is 0))
@@ -221,7 +226,7 @@ class REMMaker(object):
         # find k nearest neighbors
         print("Querying tree")
         try:
-            distances, indices = tree.query(c_interpolate, k=k, eps=self.eps, n_jobs=self.workers)
+            distances, indices = tree.query(c_interpolate, k=self.k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
             print("Making interpolated WSE array")
             weights = 1 / distances  # weight river elevations by 1 / distance
@@ -235,7 +240,7 @@ class REMMaker(object):
             interpolated_values = np.array([])
             for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
                 print(f"{i / chunk_count * 100:.2f}%")
-                distances, indices = tree.query(chunk, k=k, eps=self.eps, n_jobs=self.workers)
+                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
                 weights = 1 / distances
                 weights = weights / weights.sum(axis=1).reshape(-1, 1)
                 interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
@@ -270,7 +275,7 @@ class REMMaker(object):
         rem_viz = RasterViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
         rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
         rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
-        rem_viz.make_hillshade_color(cmap='mako_r', log_scale=True, blend_percent=45)
+        rem_viz.make_hillshade_color(cmap=self.cmap, log_scale=True, blend_percent=45)
         return
 
     def run(self):
