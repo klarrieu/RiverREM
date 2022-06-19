@@ -211,10 +211,10 @@ class REMMaker(object):
         k = self.guess_k()
         print(f"Using k = {k} nearest neighbors.")
         # coords of sampled pixels along centerline
-        c_sampled = np.dstack((self.river_x_coords, self.river_y_coords))
+        c_sampled = np.column_stack((self.river_x_coords, self.river_y_coords))
         # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation is 0))
         interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
-        c_interpolate = np.dstack((self.xs_array[interp_indices], self.ys_array[interp_indices]))
+        c_interpolate = np.column_stack((self.xs_array[interp_indices], self.ys_array[interp_indices]))
         # create 2D tree
         print("Constructing tree")
         tree = KDTree(c_sampled)
@@ -285,7 +285,7 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/duchesne_1m.tif"
+    dem = "./test_dems/smith_pc.tif"
     rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
