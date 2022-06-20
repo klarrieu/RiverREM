@@ -77,7 +77,7 @@ class REMMaker(object):
         # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
         self.bbox = self.get_bbox()
         self.cmap = cmap
-        self.k = int(k)
+        self.k = int(k) if k else None
         self.eps = float(eps)
         self.workers = int(workers)
 
@@ -326,7 +326,7 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/smith_pc.tif"
+    dem = "./test_dems/mceachern.tif"
     rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
