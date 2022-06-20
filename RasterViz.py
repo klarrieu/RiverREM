@@ -37,7 +37,7 @@ Options:
     -multidirectional: only if using "hillshade" or "hillshade-color" viz_type. 
                        Makes multidirectional hillshade, overriding alt and azim args.
     
-    -cmap: only if using "color-relief" viz_type, name of a matplotlib colormap. Default "terrain".
+    -cmap: only if using "color-relief" viz_type, name of a matplotlib or seaborn colormap. Default "terrain".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
     
     -out_ext: the extension/file format to use for geodata outputs (tif or img). Default "tif".

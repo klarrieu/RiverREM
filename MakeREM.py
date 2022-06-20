@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 import os
+import sys
 import numpy as np
 import gdal
 import osr
 import ogr
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
-import seaborn as sn  # for nice color palettes
 import subprocess
 import time
 from RasterViz import RasterViz
@@ -14,16 +14,53 @@ from RasterViz import RasterViz
 
 start = time.time()
 
+usage = """
+Script to make river relative elevation model (REM) given a DEM raster as input.
+This script can be called from Python using its class/methods or as a CLI utility.
+
+CLI Usage:
+
+"python MakeREM.py [-cmap (default=mako_r)] [-k int] [-eps (default=0.1)] [-workers (default=4)] /path/to/dem"
+
+Options:
+    
+    -cmap: Name of a matplotlib or seaborn colormap. Default "terrain".
+           (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+    
+    -k: Number of nearest neighbor pixels to use for interpolation of river centerline elevations across DEM.
+        If no value is supplied, the value of k is automatically estiamted. Higher values make smoother looking REMs
+        at the expense of increased computation time.
+    
+    -eps: Error tolerance in nearest neighbor matching for approximate KD tree query interpolation. 
+          Higher values make the interpolation faster at the expense of accuracy.
+          Approximate kth nearest neighbors are guaranteed to be no further than (1 + eps) times 
+          the distance to the true kth nearest neighbor.
+    
+    -workers: Number of CPU threads to use when making KD tree query/interpolation. Default is 4. -1 uses all threads.
+    
+    /path/to/dem: The path to the DEM raster used to make a derived REM.
+    
+Notes: River centerlines which determine the sample points for detrending are retrieved from OpenStreetMaps.
+       This script will not work with rivers that are not listed OSM Ways. 
+       These can be edited at: https://www.openstreetmap.org/edit
+       
+       For large/high resolution DEMs, the interpolation can take a very long time. Additionally, it may be necessary
+       to increase the value of k if interpolation artefacts (discrete linear breaks in REM coloring) are seen.
+"""
+
+
+def print_usage():
+    print(usage)
+    return
+
 
 class REMMaker(object):
     """
     An attempt to automatically make river REM from DEM
 
     TODO:
-        - make into CLI util
         - test estimate_k method, see if it works well on a variety of datasets
         - crop rivers shapefile to DEM extent
-        - error handling if rivers but no named rivers?
         - handling geographic coord system?
     """
     def __init__(self, dem, cmap='mako_r', k=None, eps=0.1, workers=4):
@@ -40,9 +77,9 @@ class REMMaker(object):
         # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
         self.bbox = self.get_bbox()
         self.cmap = cmap
-        self.k = k
-        self.eps = eps
-        self.workers = workers
+        self.k = int(k)
+        self.eps = float(eps)
+        self.workers = int(workers)
 
     @property
     def dem(self):
@@ -203,11 +240,10 @@ class REMMaker(object):
         area_ratio = river_pixels / np.sqrt(area)
         # use a percentage of total river pixels times area ratio
         k = int(river_pixels / 1e3 * area_ratio * 2)
-        print(f"guessing k = {k}")
+        print(f"Guessing k = {k}")
         # make k be a minimum of 5, maximum of 100
         k = min(100, max(5, k))
         return k
-
 
     def interp_river_elev(self):
         """Interpolate elevation at river centerline across DEM extent."""
@@ -295,6 +331,19 @@ if __name__ == "__main__":
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
     #rem_maker.make_image_blend()
+
+    argv = sys.argv
+    if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
+        print_usage()
+    else:
+        dem = argv[-1]
+        kwargs = {}
+        for i, arg in enumerate(argv):
+            if arg in ['-cmap', '-k', '-eps', '-workers']:
+                k = arg.replace('-', '')
+                kwargs[k] = argv[i+1]
+        rem_maker = REMMaker(dem=dem, **kwargs)
+        rem_maker.run()
 
     end = time.time()
     print(f'\nDone.\nRan in {end - start:.0f} s.')
