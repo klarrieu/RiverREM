@@ -10,7 +10,11 @@ from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/int
 import subprocess
 import time
 from RasterViz import RasterViz
+import logging
 
+level = logging.INFO
+fmt = '[%(levelname)s %(asctime)s - %(message)s'
+logging.basicConfig(level=level, format=fmt)
 
 start = time.time()
 
@@ -60,7 +64,7 @@ class REMMaker(object):
 
     TODO:
         - test estimate_k method, see if it works well on a variety of datasets
-        - crop rivers shapefile to DEM extent
+        - crop rivers shapefile to DEM extent?
         - handling geographic coord system?
     """
     def __init__(self, dem, cmap='mako_r', k=None, eps=0.1, workers=4):
@@ -116,7 +120,7 @@ class REMMaker(object):
 
     def get_river_centerline(self):
         """Find centerline of river(s) within DEM area using OSM Ways"""
-        print("\nFinding river centerline.")
+        logging.info("\nFinding river centerline.")
         # get OSM Ways within bbox of DEM (returns geopandas geodataframe)
         self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
         if len(self.rivers) == 0:
@@ -133,18 +137,18 @@ class REMMaker(object):
         # integer id corresponding to each river name
         self.river_ids = {name: i + 1 for i, name in enumerate(river_names)}
         self.rivers['river_id'] = [self.river_ids[name] for name in names]
-        print(f"Found river(s): {', '.join(river_names)}")
+        logging.info(f"Found river(s): {', '.join(river_names)}")
         # find river with greatest length (sum of all segments with same name)
         """
-        print("\nRiver lengths:")
+        logging.info("\nRiver lengths:")
         river_lengths = {}
         for river_name in river_names:
             river_segments = self.rivers[self.rivers.river_name == river_name]
             river_length = river_segments.length.sum()
-            print(f"\t{river_name}: {river_length:.4f}")
+            logging.info(f"\t{river_name}: {river_length:.4f}")
             river_lengths[river_name] = river_length
         longest_river = max(river_lengths, key=river_lengths.get)
-        print(f"\nLongest river: {longest_river}\n")
+        logging.info(f"\nLongest river: {longest_river}\n")
         # only use longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
         """
@@ -153,6 +157,7 @@ class REMMaker(object):
 
     def make_river_shp(self):
         """Make list of OSM Way object geometries into a shapefile"""
+        logging.info("Making river shapefile.")
         self.river_shp = f'{self.dem_name}_rivers.shp'
         driver = ogr.GetDriverByName('Esri Shapefile')
         ds = driver.CreateDataSource(self.river_shp)
@@ -180,7 +185,7 @@ class REMMaker(object):
 
     def get_dem_coords(self):
         """Get x, y coordinates of DEM raster pixels as array"""
-        print("Getting coordinates of DEM pixels.")
+        logging.info("Getting coordinates of DEM pixels.")
         r = gdal.Open(self.dem, gdal.GA_ReadOnly)
         band = r.GetRasterBand(1)
         self.dem_array = band.ReadAsArray()
@@ -195,17 +200,14 @@ class REMMaker(object):
         min_x, max_x = sorted([upper_left_x, upper_left_x + x_size * cols])
         min_y, max_y = sorted([upper_left_y, upper_left_y + y_size * rows])
         self.extent = (min_x, min_y, max_x, max_y)
-        # make arrays with x, y indices
-        x_indices = np.array([range(cols)] * rows)
-        y_indices = np.array([[i] * cols for i in range(rows)])
-        # map indices to coords
-        self.xs_array = x_indices * x_size + upper_left_x + (x_size / 2)
-        self.ys_array = y_indices * y_size + upper_left_y + (y_size / 2)
+        # function for mapping indices to coords
+        self.ix2coords = lambda t: np.column_stack(np.array([t[0] * x_size + upper_left_x + (x_size / 2),
+                                                             t[1] * y_size + upper_left_y + (y_size / 2)]))
         return
 
     def get_river_elev(self):
         """Get DEM values along river centerline"""
-        print("Getting river elevation at DEM pixels.")
+        logging.info("Getting river elevation at DEM pixels.")
         # gdal_rasterize centerline
         centerline_ras = f"{self.dem_name}_centerline.tif"
         extent = f"-te {' '.join(map(str, self.extent))}"
@@ -223,59 +225,80 @@ class REMMaker(object):
             pixel_count = len(self.centerline_array[self.centerline_array == id])
             pixel_counts[id] = pixel_count
         longest_river_id = max(pixel_counts, key=pixel_counts.get)
-        print(f"\nLongest river in domain: {[name for name, id in self.river_ids.items() if id == longest_river_id][0]}")
+        logging.info(f"\nLongest river in domain: {[name for name, id in self.river_ids.items() if id == longest_river_id][0]}")
         # redefine array with 1 for longest river, 0 otherwise
         self.centerline_array = np.where(self.centerline_array == longest_river_id, 1, np.nan)
-        # use np.where to get DEM elevation and coordinates at active pixels
-        self.river_x_coords = self.xs_array[np.where(self.centerline_array == 1)]
-        self.river_y_coords = self.ys_array[np.where(self.centerline_array == 1)]
-        self.river_wses = self.dem_array[np.where(self.centerline_array == 1)]
+        self.thin_centerline_pts()
+        # get coordinates and DEM elevation at river pixels
+        self.river_indices = np.where(self.centerline_array == 1)
+        self.river_coords = self.ix2coords(self.river_indices)
+        self.river_wses = self.dem_array[self.river_indices]
         return
+
+    def thin_centerline_pts(self):
+        logging.info("Thinning centerline.")
+        max_centerline_pts = 1e3
+        self.river_pixels = len(self.centerline_array[self.centerline_array == 1])
+        thin = self.river_pixels // max_centerline_pts
+        if thin <= 1:
+            self.thin_pixels = self.river_pixels
+            return self.centerline_array
+        else:
+            y, x = np.where(self.centerline_array)
+            y = y.reshape(*self.centerline_array.shape)
+            x = x.reshape(*self.centerline_array.shape)
+            thinned_array = np.where((x + y) % thin == 0, self.centerline_array, np.nan)
+            self.thin_pixels = len(thinned_array[thinned_array == 1])
+            logging.info(f"Thinned centerline pixels to {self.thin_pixels/self.river_pixels * 100:2.2f}% of original.")
+            self.centerline_array = thinned_array
+            return thinned_array
 
     def estimate_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
-        area = np.where(np.isnan(self.dem_array), 0, 1).sum()
-        river_pixels = len(self.centerline_array[self.centerline_array == 1])
+        logging.info("Estimating k.")
+        area = np.prod(self.dem_array.shape)
         # a crude estimte of sinuosity, seems to be preserved across resolutions
-        area_ratio = river_pixels / np.sqrt(area)
-        # use a percentage of total river pixels times area ratio
-        k = int(river_pixels / 1e3 * area_ratio * 2)
-        print(f"Guessing k = {k}")
+        area_ratio = max(1, self.river_pixels / np.sqrt(area))
+        # use a percentage of total river pixels times area ratio squared
+        k = int(4 * self.thin_pixels / 1e2 * (area_ratio ** 2))
+        logging.info(f"Guessing k = {k}")
         # make k be a minimum of 5, maximum of 100
         k = min(100, max(5, k))
         return k
 
     def interp_river_elev(self):
-        """Interpolate elevation at river centerline across DEM extent."""
-        print("\nInterpolating river elevation across DEM extent.")
+        """
+        Interpolate elevation at river centerline across DEM extent.
+        Time for KDTree query scales with log(k).
+        """
+        logging.info("\nInterpolating river elevation across DEM extent.")
         if not self.k:
             self.k = self.estimate_k()
-        print(f"Using k = {self.k} nearest neighbors.")
-        # coords of sampled pixels along centerline
-        c_sampled = np.column_stack((self.river_x_coords, self.river_y_coords))
-        # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation is 0))
+        logging.info(f"Using k = {self.k} nearest neighbors.")
+        # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation = 0))
         interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
-        c_interpolate = np.column_stack((self.xs_array[interp_indices], self.ys_array[interp_indices]))
+        logging.info("Getting coords of points to interpolate.")
+        c_interpolate = self.ix2coords(interp_indices)
         # create 2D tree
-        print("Constructing tree")
-        tree = KDTree(c_sampled)
+        logging.info("Constructing tree.")
+        tree = KDTree(self.river_coords)
         # find k nearest neighbors
-        print("Querying tree")
+        logging.info("Querying tree.")
         try:
             distances, indices = tree.query(c_interpolate, k=self.k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
-            print("Making interpolated WSE array")
+            logging.info("Making interpolated WSE array")
             weights = 1 / distances  # weight river elevations by 1 / distance
             weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
             interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)  # apply weights
         except MemoryError:
-            print("WARNING: Large dataset. Chunking query...")
+            logging.info("WARNING: Large dataset. Chunking query...")
             chunk_size = 1e6
             # iterate over chunks
             chunk_count = c_interpolate.shape[0] // chunk_size
             interpolated_values = np.array([])
             for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
-                print(f"{i / chunk_count * 100:.2f}%")
+                logging.info(f"{i / chunk_count * 100:.2f}%")
                 distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
                 weights = 1 / distances
                 weights = weights / weights.sum(axis=1).reshape(-1, 1)
@@ -289,7 +312,7 @@ class REMMaker(object):
 
     def detrend_dem(self):
         """Subtract interpolated river elevation from DEM elevation to get REM"""
-        print("\nDetrending DEM.")
+        logging.info("\nDetrending DEM.")
         self.rem_array = self.dem_array - self.wse_interp_array
 
         self.rem_ras = f"{self.dem_name}_REM.tif"
@@ -303,7 +326,7 @@ class REMMaker(object):
 
     def make_image_blend(self):
         """Blend REM with DEM hillshade to make pretty finished product"""
-        print("\nBlending REM with hillshade.")
+        logging.info("\nBlending REM with hillshade.")
         # make hillshade of original DEM
         dem_viz = RasterViz(self.dem, out_ext=".tif")
         dem_viz.make_hillshade(multidirectional=True, z=2)
@@ -326,8 +349,8 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/mceachern.tif"
-    rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
+    dem = "./test_dems/susitna_large.tin.tif"
+    rem_maker = REMMaker(dem=dem, k=100, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
     #rem_maker.make_image_blend()
@@ -346,4 +369,4 @@ if __name__ == "__main__":
         rem_maker.run()
 
     end = time.time()
-    print(f'\nDone.\nRan in {end - start:.0f} s.')
+    logging.info(f'\nDone.\nRan in {end - start:.0f} s.')
