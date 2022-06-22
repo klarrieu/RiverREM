@@ -65,7 +65,7 @@ class REMMaker(object):
     An attempt to automatically make river REM from DEM
 
     TODO:
-        - refactor centerline thinning using shapely line to points
+        - use shapely geometries to determine endpoints of river, length, and use that to calculate sinuosity
         - test estimate_k method, see if it works well on a variety of datasets
         - handling geographic coord system, could proj to 3857 or just not do geographic coords
         - determine if/when to restrict usage based on pixel number
@@ -151,16 +151,27 @@ class REMMaker(object):
             logging.info(f"\t{river_name}: {river_length:.4f}")
             river_lengths[river_name] = river_length
         longest_river = max(river_lengths, key=river_lengths.get)
+        self.river_length = river_lengths[longest_river]
         logging.info(f"\nLongest river in domain: {longest_river}\n")
-        # only use longest river to make REM
+        # only keep longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
+        # interpolate linestrings to points
+        total_pts = 1e3
+        self.river_pts = []
+        for way, river_segment in self.rivers.iterrows():
+            line_string = river_segment.geometry
+            point_fraction = line_string.length / self.river_length
+            point_num = int(point_fraction * total_pts)
+            distances = np.linspace(0, line_string.length, point_num)
+            for d in distances:
+                self.river_pts.append(line_string.interpolate(d))
         self.make_river_shp()
         return
 
     def make_river_shp(self):
         """Make list of OSM Way object geometries into a shapefile"""
-        logging.info("Making river shapefile.")
-        self.river_shp = f'{self.dem_name}_rivers.shp'
+        logging.info("Making river lines shapefile.")
+        self.river_shp = f'{self.dem_name}_lines.shp'
         driver = ogr.GetDriverByName('Esri Shapefile')
         ds = driver.CreateDataSource(self.river_shp)
         # create empty multiline geometry layer
@@ -178,6 +189,31 @@ class REMMaker(object):
             feat.SetField('id', 1)
             # set feature geometry from Shapely object
             geom = ogr.CreateGeometryFromWkb(way.geometry.wkb)
+            feat.SetGeometry(geom)
+            # add feature to layer
+            layer.CreateFeature(feat)
+            feat = geom = None  # destroy these
+        # Save and close everything
+        ds = layer = feat = geom = None
+
+        # create points shapefile
+        logging.info("Making river points shapefile.")
+        self.river_shp = f'{self.dem_name}_points.shp'
+        driver = ogr.GetDriverByName('Esri Shapefile')
+        ds = driver.CreateDataSource(self.river_shp)
+        # create empty multiline geometry layer
+        layer = ds.CreateLayer('', self.proj, ogr.wkbPoint)
+        # Add fields
+        layer.CreateField(ogr.FieldDefn('id', ogr.OFTInteger))
+        defn = layer.GetLayerDefn()
+        # populate layer with a feature for each natural waterway geometrye
+        for p in self.river_pts:
+            # Create a new feature (attribute and geometry)
+            feat = ogr.Feature(defn)
+            # set feature attributes
+            feat.SetField('id', 1)
+            # set feature geometry from Shapely object
+            geom = ogr.CreateGeometryFromWkb(p.wkb)
             feat.SetGeometry(geom)
             # add feature to layer
             layer.CreateFeature(feat)
@@ -221,30 +257,11 @@ class REMMaker(object):
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
         # remove cells where DEM is null
         self.centerline_array = np.where(np.isnan(self.dem_array), np.nan, self.centerline_array)
-        self.thin_centerline_pts()
         # get coordinates and DEM elevation at river pixels
         self.river_indices = np.where(self.centerline_array == 1)
         self.river_coords = self.ix2coords(self.river_indices)
         self.river_wses = self.dem_array[self.river_indices]
         return
-
-    def thin_centerline_pts(self):
-        logging.info("Thinning centerline.")
-        max_centerline_pts = 1e3
-        self.river_pixels = len(self.centerline_array[self.centerline_array == 1])
-        thin = self.river_pixels // max_centerline_pts
-        if thin <= 1:
-            self.thin_pixels = self.river_pixels
-            return self.centerline_array
-        else:
-            y, x = np.where(self.centerline_array)
-            y = y.reshape(*self.centerline_array.shape)
-            x = x.reshape(*self.centerline_array.shape)
-            thinned_array = np.where((x + y) % thin == 0, self.centerline_array, np.nan)
-            self.thin_pixels = len(thinned_array[thinned_array == 1])
-            logging.info(f"Thinned centerline pixels to {self.thin_pixels/self.river_pixels * 100:2.2f}% of original.")
-            self.centerline_array = thinned_array
-            return thinned_array
 
     def estimate_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
