@@ -5,6 +5,8 @@ import numpy as np
 import gdal
 import osr
 import ogr
+from shapely.geometry import box  # for cropping centerlines to extent of DEM
+from geopandas import clip
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
 import subprocess
@@ -63,9 +65,12 @@ class REMMaker(object):
     An attempt to automatically make river REM from DEM
 
     TODO:
+        - refactor centerline thinning using shapely line to points
         - test estimate_k method, see if it works well on a variety of datasets
-        - crop rivers shapefile to DEM extent?
-        - handling geographic coord system?
+        - handling geographic coord system, could proj to 3857 or just not do geographic coords
+        - determine if/when to restrict usage based on pixel number
+        - create readme markdown
+        - compose blog post with pretty pictures
     """
     def __init__(self, dem, cmap='mako_r', k=None, eps=0.1, workers=4):
         """
@@ -127,6 +132,8 @@ class REMMaker(object):
             raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMaps.")
         # read into geodataframe with same CRS as DEM
         self.rivers = self.rivers.to_crs(epsg=self.epsg_code)
+        # crop to DEM extent
+        self.rivers = clip(self.rivers, box(*self.extent))
         # get river names (drop ones without a name)
         self.rivers = self.rivers.dropna(subset=['name'])
         names = self.rivers.name.values
@@ -134,12 +141,8 @@ class REMMaker(object):
         self.rivers['river_name'] = names
         # get unique names
         river_names = set(names)
-        # integer id corresponding to each river name
-        self.river_ids = {name: i + 1 for i, name in enumerate(river_names)}
-        self.rivers['river_id'] = [self.river_ids[name] for name in names]
         logging.info(f"Found river(s): {', '.join(river_names)}")
         # find river with greatest length (sum of all segments with same name)
-        """
         logging.info("\nRiver lengths:")
         river_lengths = {}
         for river_name in river_names:
@@ -148,10 +151,9 @@ class REMMaker(object):
             logging.info(f"\t{river_name}: {river_length:.4f}")
             river_lengths[river_name] = river_length
         longest_river = max(river_lengths, key=river_lengths.get)
-        logging.info(f"\nLongest river: {longest_river}\n")
+        logging.info(f"\nLongest river in domain: {longest_river}\n")
         # only use longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
-        """
         self.make_river_shp()
         return
 
@@ -173,7 +175,7 @@ class REMMaker(object):
             feat = ogr.Feature(defn)
             # set feature attributes
             feat.SetField('name', way.river_name)
-            feat.SetField('id', way.river_id)
+            feat.SetField('id', 1)
             # set feature geometry from Shapely object
             geom = ogr.CreateGeometryFromWkb(way.geometry.wkb)
             feat.SetGeometry(geom)
@@ -219,15 +221,6 @@ class REMMaker(object):
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
         # remove cells where DEM is null
         self.centerline_array = np.where(np.isnan(self.dem_array), np.nan, self.centerline_array)
-        # identify river with most active pixels in DEM domain (use that one to make REM)
-        pixel_counts = {}
-        for river_name, id in self.river_ids.items():
-            pixel_count = len(self.centerline_array[self.centerline_array == id])
-            pixel_counts[id] = pixel_count
-        longest_river_id = max(pixel_counts, key=pixel_counts.get)
-        logging.info(f"\nLongest river in domain: {[name for name, id in self.river_ids.items() if id == longest_river_id][0]}")
-        # redefine array with 1 for longest river, 0 otherwise
-        self.centerline_array = np.where(self.centerline_array == longest_river_id, 1, np.nan)
         self.thin_centerline_pts()
         # get coordinates and DEM elevation at river pixels
         self.river_indices = np.where(self.centerline_array == 1)
@@ -256,9 +249,9 @@ class REMMaker(object):
     def estimate_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
         logging.info("Estimating k.")
-        area = np.prod(self.dem_array.shape)
+        straight_length = max(self.dem_array.shape)
         # a crude estimte of sinuosity, seems to be preserved across resolutions
-        area_ratio = max(1, self.river_pixels / np.sqrt(area))
+        area_ratio = max(1, self.river_pixels / straight_length)
         # use a percentage of total river pixels times area ratio squared
         k = int(4 * self.thin_pixels / 1e2 * (area_ratio ** 2))
         logging.info(f"Guessing k = {k}")
@@ -305,6 +298,7 @@ class REMMaker(object):
                 interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
 
         # create interpolated WSE array as elevations along centerline, nans everywhere else
+        logging.info("Created interpolated WSE array.")
         self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
         # add the interpolated eleation values
         self.wse_interp_array[interp_indices] = interpolated_values
@@ -314,7 +308,6 @@ class REMMaker(object):
         """Subtract interpolated river elevation from DEM elevation to get REM"""
         logging.info("\nDetrending DEM.")
         self.rem_array = self.dem_array - self.wse_interp_array
-
         self.rem_ras = f"{self.dem_name}_REM.tif"
         # make copy of DEM raster
         r = gdal.Open(self.dem, gdal.GA_ReadOnly)
