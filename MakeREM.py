@@ -27,12 +27,17 @@ This script can be called from Python using its class/methods or as a CLI utilit
 
 CLI Usage:
 
-"python MakeREM.py [-cmap (default=mako_r)] [-k int] [-eps (default=0.1)] [-workers (default=4)] /path/to/dem"
+"python MakeREM.py [-cmap (default=mako_r)] [-interp_pts (default=1000)] [-k (default=auto)] [-eps (default=0.1)] 
+                   [-workers (default=4)] /path/to/dem"
 
 Options:
     
-    -cmap: Name of a matplotlib or seaborn colormap. Default "terrain".
+    -cmap: Name of a matplotlib or seaborn colormap. Default "mako_r".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+    
+    -interp_pts: Max number of points to use for interpolation. Actual number of points is limited by number of
+                 DEM pixels along centerline, so less points than this will be used for lower resolution DEMs. 
+                 Default is 1,000.
     
     -k: Number of nearest neighbor pixels to use for interpolation of river centerline elevations across DEM.
         If no value is supplied, the value of k is automatically estiamted. Higher values make smoother looking REMs
@@ -66,16 +71,18 @@ class REMMaker(object):
     An attempt to automatically make river REM from DEM
 
     TODO:
-        - test estimate_k method, see if it works well on a variety of datasets
         - handling geographic coord system, could proj to 3857 or just not do geographic coords
         - determine if/when to restrict usage based on pixel number
         - create readme markdown
         - compose blog post with pretty pictures
     """
-    def __init__(self, dem, cmap='mako_r', k=None, eps=0.1, workers=4):
+    def __init__(self, dem, cmap='mako_r', interp_pts=1e3, k=None, eps=0.1, workers=4):
         """
         :param dem: str, path to DEM raster
         :param cmap: str, name of matplotlib/seaborn colormap to use for REM coloring
+        :param interp_pts: int, max number of points to use for interpolation.
+                           Actual number of points limited by number of DEM pixels along centerline,
+                           so less points will be used for lower resolution DEMs.
         :param k: int, number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.
         :param eps: float, fractional tolerance for errors in kd tree query
         :param workers: int, number of CPU threads to use for interpolation. -1 = all threads.
@@ -84,6 +91,7 @@ class REMMaker(object):
         self.dem_name = os.path.basename(dem).split('.')[0]
         self.get_spatial_metadata()
         self.cmap = cmap
+        self.interp_pts = int(interp_pts)
         self.k = int(k) if k else None
         self.eps = float(eps)
         self.workers = int(workers)
@@ -142,7 +150,7 @@ class REMMaker(object):
 
     def get_river_centerline(self):
         """Find centerline of river(s) within DEM area using OSM Ways"""
-        logging.info("\nFinding river centerline.")
+        logging.info("Finding river centerline.")
         # get OSM Ways within bbox of DEM (returns geopandas geodataframe)
         self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
         if len(self.rivers) == 0:
@@ -180,13 +188,12 @@ class REMMaker(object):
 
     def lines2pts(self):
         """Convert river centerline segment linestrings to a set of points to sample for interpolation."""
-        total_pts = 1e3
         self.river_pts = []
         self.river_endpts = []
         for way, river_segment in self.rivers.iterrows():
             line_string = river_segment.geometry
             point_fraction = line_string.length / self.river_length
-            point_num = int(point_fraction * total_pts)
+            point_num = int(point_fraction * self.interp_pts)
             distances = np.linspace(0, line_string.length, point_num)
             self.river_pts.extend([line_string.interpolate(d) for d in distances])
             self.river_endpts.extend([line_string.interpolate(0), line_string.interpolate(line_string.length)])
@@ -258,8 +265,8 @@ class REMMaker(object):
         # Use 2% of sampled river pixels times scale factor
         k = int(2 * river_pixels / 1e2 * scale_factor)
         logging.info(f"Guessing k = {k}")
-        # make k be a minimum of 5, maximum of 100
-        k = min(100, max(5, k))
+        # make k be a minimum of 5, maximum of 10% of self.interp_pts
+        k = min(int(self.interp_pts / 10), max(5, k))
         return k
 
     def interp_river_elev(self):
@@ -267,7 +274,7 @@ class REMMaker(object):
         Interpolate elevation at river centerline across DEM extent.
         Time for KDTree query scales with log(k).
         """
-        logging.info("\nInterpolating river elevation across DEM extent.")
+        logging.info("Interpolating river elevation across DEM extent.")
         if not self.k:
             self.k = self.estimate_k()
         logging.info(f"Using k = {self.k} nearest neighbors.")
@@ -344,7 +351,7 @@ class REMMaker(object):
 
 if __name__ == "__main__":
     # example Python run
-    dem = "./test_dems/duchesne_1m.tif"
+    dem = "./test_dems/milk_conf.tif"
     rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
@@ -358,7 +365,7 @@ if __name__ == "__main__":
         dem = argv[-1]
         kwargs = {}
         for i, arg in enumerate(argv):
-            if arg in ['-cmap', '-k', '-eps', '-workers']:
+            if arg in ['-cmap', '-interp_pts', '-k', '-eps', '-workers']:
                 k = arg.replace('-', '')
                 kwargs[k] = argv[i+1]
         rem_maker = REMMaker(dem=dem, **kwargs)
