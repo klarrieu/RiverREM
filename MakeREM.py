@@ -9,6 +9,7 @@ from shapely.geometry import box  # for cropping centerlines to extent of DEM
 from geopandas import clip
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
+from itertools import combinations
 import subprocess
 import time
 from RasterViz import RasterViz
@@ -65,7 +66,6 @@ class REMMaker(object):
     An attempt to automatically make river REM from DEM
 
     TODO:
-        - use shapely geometries to determine endpoints of river, length, and use that to calculate sinuosity
         - test estimate_k method, see if it works well on a variety of datasets
         - handling geographic coord system, could proj to 3857 or just not do geographic coords
         - determine if/when to restrict usage based on pixel number
@@ -82,9 +82,7 @@ class REMMaker(object):
         """
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
-        self.proj, self.epsg_code = self.get_projection()
-        # bbox (n_lat, s_lat, e_lon, w_lon) of DEM
-        self.bbox = self.get_bbox()
+        self.get_spatial_metadata()
         self.cmap = cmap
         self.k = int(k) if k else None
         self.eps = float(eps)
@@ -101,27 +99,46 @@ class REMMaker(object):
         self._dem = dem
         return self._dem
 
-    def get_projection(self):
-        """Get EPSG code for DEM raster projection."""
-        gtif = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        proj = osr.SpatialReference(wkt=gtif.GetProjection())
-        epsg_code = proj.GetAttrValue('AUTHORITY', 1)
-        return proj, epsg_code
-
-    def get_bbox(self):
-        """Get lat/long extent for DEM raster."""
-        src = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        source_crs = src.GetSpatialRef()
-        ulx, xres, xskew, uly, yskew, yres = src.GetGeoTransform()
-        lrx = ulx + (src.RasterXSize * xres)
-        lry = uly + (src.RasterYSize * yres)
+    def get_spatial_metadata(self):
+        """
+        Get various spatial metadata from DEM to use for processing: projection, EPSG code, DEM array,
+        NoData Value, cell size, extent/bbox, function mapping array indices to x,y coordinates.
+        """
+        # get EPSG code for DEM raster projection
+        logging.info("Getting DEM projection.")
+        r = gdal.Open(self.dem, gdal.GA_ReadOnly)
+        self.proj = osr.SpatialReference(wkt=r.GetProjection())
+        self.epsg_code = self.proj.GetAttrValue('AUTHORITY', 1)
+        logging.info("Reading DEM as array.")
+        band = r.GetRasterBand(1)
+        self.dem_array = band.ReadAsArray()
+        # ensure that nodata values become np.nans in array
+        self.nodata_val = band.GetNoDataValue()
+        if self.nodata_val:
+            self.dem_array = np.where(self.dem_array == self.nodata_val, np.nan, self.dem_array)
+        rows, cols = self.dem_array.shape
+        # get extent of DEM (used to crop/set extent for centerline shapefile/raster)
+        logging.info("Getting DEM bounds.")
+        upper_left_x, x_size, x_rot, upper_left_y, y_rot, y_size = r.GetGeoTransform()
+        self.cell_w, self.cell_h = x_size, y_size
+        min_x, max_x = sorted([upper_left_x, upper_left_x + x_size * cols])
+        min_y, max_y = sorted([upper_left_y, upper_left_y + y_size * rows])
+        self.extent = (min_x, min_y, max_x, max_y)
+        # Get lat/long bounding box for DEM raster (used to get OSM features within area)
+        lower_right_x = upper_left_x + (r.RasterXSize * x_size)
+        lower_right_y = upper_left_y + (r.RasterYSize * y_size)
+        source_crs = r.GetSpatialRef()
         target_crs = osr.SpatialReference()
         target_crs.ImportFromEPSG(4326)  # WGS84 Geographic Coordinate System
         transform = osr.CoordinateTransformation(source_crs, target_crs)
-        ul_lat, ul_long = transform.TransformPoint(ulx, uly)[:2]
-        lr_lat, lr_long = transform.TransformPoint(lrx, lry)[:2]
-        bbox = [ul_lat, lr_lat, lr_long, ul_long]
-        return bbox
+        ul_lat, ul_long = transform.TransformPoint(upper_left_x, upper_left_y)[:2]
+        lr_lat, lr_long = transform.TransformPoint(lower_right_x, lower_right_y)[:2]
+        self.bbox = [ul_lat, lr_lat, lr_long, ul_long]
+        # function for mapping indices to x, y coords
+        logging.info("Mapping array indices to coordinates.")
+        self.ix2coords = lambda t: np.column_stack(np.array([t[0] * x_size + upper_left_x + (x_size / 2),
+                                                             t[1] * y_size + upper_left_y + (y_size / 2)]))
+        return
 
     def get_river_centerline(self):
         """Find centerline of river(s) within DEM area using OSM Ways"""
@@ -155,47 +172,28 @@ class REMMaker(object):
         logging.info(f"\nLongest river in domain: {longest_river}\n")
         # only keep longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
-        # interpolate linestrings to points
+        # convert linestrings of river to points
+        self.lines2pts()
+        # make shapefile of points
+        self.make_river_shp()
+        return
+
+    def lines2pts(self):
+        """Convert river centerline segment linestrings to a set of points to sample for interpolation."""
         total_pts = 1e3
         self.river_pts = []
+        self.river_endpts = []
         for way, river_segment in self.rivers.iterrows():
             line_string = river_segment.geometry
             point_fraction = line_string.length / self.river_length
             point_num = int(point_fraction * total_pts)
             distances = np.linspace(0, line_string.length, point_num)
-            for d in distances:
-                self.river_pts.append(line_string.interpolate(d))
-        self.make_river_shp()
+            self.river_pts.extend([line_string.interpolate(d) for d in distances])
+            self.river_endpts.extend([line_string.interpolate(0), line_string.interpolate(line_string.length)])
         return
 
     def make_river_shp(self):
-        """Make list of OSM Way object geometries into a shapefile"""
-        logging.info("Making river lines shapefile.")
-        self.river_shp = f'{self.dem_name}_lines.shp'
-        driver = ogr.GetDriverByName('Esri Shapefile')
-        ds = driver.CreateDataSource(self.river_shp)
-        # create empty multiline geometry layer
-        layer = ds.CreateLayer('', self.proj, ogr.wkbMultiLineString)
-        # Add fields
-        layer.CreateField(ogr.FieldDefn('name', ogr.OFTString))
-        layer.CreateField(ogr.FieldDefn('id', ogr.OFTInteger))
-        defn = layer.GetLayerDefn()
-        # populate layer with a feature for each natural waterway geometrye
-        for i, way in self.rivers.iterrows():
-            # Create a new feature (attribute and geometry)
-            feat = ogr.Feature(defn)
-            # set feature attributes
-            feat.SetField('name', way.river_name)
-            feat.SetField('id', 1)
-            # set feature geometry from Shapely object
-            geom = ogr.CreateGeometryFromWkb(way.geometry.wkb)
-            feat.SetGeometry(geom)
-            # add feature to layer
-            layer.CreateFeature(feat)
-            feat = geom = None  # destroy these
-        # Save and close everything
-        ds = layer = feat = geom = None
-
+        """Make points along river centerline into a shapefile"""
         # create points shapefile
         logging.info("Making river points shapefile.")
         self.river_shp = f'{self.dem_name}_points.shp'
@@ -220,27 +218,6 @@ class REMMaker(object):
             feat = geom = None  # destroy these
         # Save and close everything
         ds = layer = feat = geom = None
-
-    def get_dem_coords(self):
-        """Get x, y coordinates of DEM raster pixels as array"""
-        logging.info("Getting coordinates of DEM pixels.")
-        r = gdal.Open(self.dem, gdal.GA_ReadOnly)
-        band = r.GetRasterBand(1)
-        self.dem_array = band.ReadAsArray()
-        # ensure that nodata values become np.nans in array
-        self.nodata_val = band.GetNoDataValue()
-        if self.nodata_val:
-            self.dem_array = np.where(self.dem_array == self.nodata_val, np.nan, self.dem_array)
-        rows, cols = np.shape(self.dem_array)
-        # get dimensions of raster
-        (upper_left_x, x_size, x_rotation, upper_left_y, y_rotation, y_size) = r.GetGeoTransform()
-        self.cell_w, self.cell_h = x_size, y_size
-        min_x, max_x = sorted([upper_left_x, upper_left_x + x_size * cols])
-        min_y, max_y = sorted([upper_left_y, upper_left_y + y_size * rows])
-        self.extent = (min_x, min_y, max_x, max_y)
-        # function for mapping indices to coords
-        self.ix2coords = lambda t: np.column_stack(np.array([t[0] * x_size + upper_left_x + (x_size / 2),
-                                                             t[1] * y_size + upper_left_y + (y_size / 2)]))
         return
 
     def get_river_elev(self):
@@ -263,14 +240,23 @@ class REMMaker(object):
         self.river_wses = self.dem_array[self.river_indices]
         return
 
+    def get_sinuosity(self):
+        """Estimate sinuosity of the river using river centerline(s) length / distance between line endpoints"""
+        straight_dist = max([p1.distance(p2) for p1, p2 in combinations(self.river_endpts, 2)])
+        sinuosity = self.river_length / straight_dist
+        sinuosity = max(1, sinuosity)  # ensure >= 1
+        return sinuosity
+
     def estimate_k(self):
         """Determine the number of k nearest neighbors to use for interpolation"""
         logging.info("Estimating k.")
-        straight_length = max(self.dem_array.shape)
-        # a crude estimte of sinuosity, seems to be preserved across resolutions
-        area_ratio = max(1, self.river_pixels / straight_length)
-        # use a percentage of total river pixels times area ratio squared
-        k = int(4 * self.thin_pixels / 1e2 * (area_ratio ** 2))
+        # get total number of river pixels, sinuosity
+        river_pixels = len(self.river_wses)
+        sinuosity = self.get_sinuosity()
+        # scale factor goes from 1 (at sinuosity = 1), asymptotes to 5 for very sinuous river
+        scale_factor = 1 + 4 * np.tanh(sinuosity - 1)
+        # Use 2% of sampled river pixels times scale factor
+        k = int(2 * river_pixels / 1e2 * scale_factor)
         logging.info(f"Guessing k = {k}")
         # make k be a minimum of 5, maximum of 100
         k = min(100, max(5, k))
@@ -313,7 +299,6 @@ class REMMaker(object):
                 weights = 1 / distances
                 weights = weights / weights.sum(axis=1).reshape(-1, 1)
                 interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
-
         # create interpolated WSE array as elevations along centerline, nans everywhere else
         logging.info("Created interpolated WSE array.")
         self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
@@ -349,7 +334,6 @@ class REMMaker(object):
 
     def run(self):
         """Make pretty REM/hillshade blend from DEM"""
-        self.get_dem_coords()
         self.get_river_centerline()
         self.get_river_elev()
         self.interp_river_elev()
@@ -359,12 +343,14 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    dem = "./test_dems/susitna_large.tin.tif"
-    rem_maker = REMMaker(dem=dem, k=100, eps=0.1, workers=4)
+    # example Python run
+    dem = "./test_dems/duchesne_1m.tif"
+    rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
     rem_maker.run()
     #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
     #rem_maker.make_image_blend()
 
+    # CLI call parsing
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
         print_usage()
