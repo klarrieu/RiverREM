@@ -52,12 +52,12 @@ Options:
     
     /path/to/dem: The path to the DEM raster used to make a derived REM.
     
-Notes: River centerlines which determine the sample points for detrending are retrieved from OpenStreetMaps.
-       This script will not work with rivers that are not listed OSM Ways. 
-       These can be edited at: https://www.openstreetmap.org/edit
+Notes: River centerlines used to create REMs are retrieved from OpenStreetMap (OSM). If a desired river segment is 
+       not listed on OSM, a new river centerline can be created/edited at: https://www.openstreetmap.org/edit 
+       (clear the ./cache folder after using the OSM editor to get the updated centerline).
        
-       For large/high resolution DEMs, the interpolation can take a very long time. Additionally, it may be necessary
-       to increase the value of k if interpolation artefacts (discrete linear breaks in REM coloring) are seen.
+       For large/high resolution DEMs, the interpolation can take a long time. Additionally, it may be necessary
+       to increase the value of k if interpolation artefacts (discrete linear breaks in REM coloring) are present.
 """
 
 
@@ -154,7 +154,8 @@ class REMMaker(object):
         # get OSM Ways within bbox of DEM (returns geopandas geodataframe)
         self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
         if len(self.rivers) == 0:
-            raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMaps.")
+            raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMap:\n"
+                            "https://www.openstreetmap.org/edit")
         # read into geodataframe with same CRS as DEM
         self.rivers = self.rivers.to_crs(epsg=self.epsg_code)
         # crop to DEM extent
@@ -318,6 +319,8 @@ class REMMaker(object):
         logging.info("\nDetrending DEM.")
         self.rem_array = self.dem_array - self.wse_interp_array
         self.rem_ras = f"{self.dem_name}_REM.tif"
+        # set nans back to nodata value
+        self.rem_array = np.where(np.isnan(self.rem_array), self.nodata_val, self.rem_array)
         # make copy of DEM raster
         r = gdal.Open(self.dem, gdal.GA_ReadOnly)
         driver = gdal.GetDriverByName("GTiff")
@@ -351,11 +354,11 @@ class REMMaker(object):
 
 if __name__ == "__main__":
     # example Python run
-    dem = "./test_dems/milk_conf.tif"
-    rem_maker = REMMaker(dem=dem, eps=0.1, workers=4)
-    rem_maker.run()
-    #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
-    #rem_maker.make_image_blend()
+    dem = "./test_dems/chatanika.tif"
+    rem_maker = REMMaker(dem=dem, cmap='ocean_r', eps=0.1, workers=4)
+    # rem_maker.run()
+    rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
+    rem_maker.make_image_blend()
 
     # CLI call parsing
     argv = sys.argv
