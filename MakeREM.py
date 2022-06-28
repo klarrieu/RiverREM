@@ -330,7 +330,7 @@ class REMMaker(object):
         return self.rem_ras
 
     def make_image_blend(self):
-        """Blend REM with DEM hillshade to make pretty finished product"""
+        """Blend REM color-relief with DEM hillshade to make pretty finished product"""
         logging.info("\nBlending REM with hillshade.")
         # make hillshade of original DEM
         dem_viz = RasterViz(self.dem, out_ext=".tif")
@@ -338,8 +338,8 @@ class REMMaker(object):
         # make hillshdae color using hillshade from DEM and color-relief from REM
         rem_viz = RasterViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
         rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
-        rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
-        rem_viz.make_hillshade_color(cmap=self.cmap, log_scale=True, blend_percent=45)
+        # rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
+        rem_viz.make_hillshade_color(cmap=self.cmap, log_scale=True, blend_percent=25)
         return
 
     def run(self):
@@ -354,11 +354,11 @@ class REMMaker(object):
 
 if __name__ == "__main__":
     # example Python run
-    dem = "./test_dems/chatanika.tif"
-    rem_maker = REMMaker(dem=dem, cmap='ocean_r', eps=0.1, workers=4)
-    # rem_maker.run()
-    rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
-    rem_maker.make_image_blend()
+    """
+    dem = "./test/dem.tif"
+    rem_maker = REMMaker(dem=dem, cmap='mako_r', eps=0.1, workers=4)
+    rem_maker.run()
+    """
 
     # CLI call parsing
     argv = sys.argv

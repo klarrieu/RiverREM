@@ -455,7 +455,7 @@ class RasterViz(object):
 if __name__ == "__main__":
     # example Python run here
     """
-    dem = './test_dems/well.tif'
+    dem = './test/dem.tif'
     viz = RasterViz(dem=dem, out_ext='.img', make_png=True, make_kmz=True, docker_run=False)
     viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
     viz.make_hillshade(multidirectional=True)

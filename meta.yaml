@@ -1,0 +1,33 @@
+package:
+  name: "riverrem"
+  version: "0.0.1"
+
+source:
+  git_rev: v0.0.1
+  git_url: https://github.com/klarrieu/RiverREM
+
+requirements:
+  host:
+    - python
+    - setuptools
+  build:
+    - python
+  run:
+    - python
+    - gdal
+    - scipy
+    - osmnx
+    - shapely
+    - geopandas
+    - PIL
+
+about:
+  home: https://github.com/klarrieu/RiverREM
+  license: MIT
+  license_familY: MIT
+  license_file: LICENSE
+  summary: "Make river relative elevation models (REMs) from an input digital elevation model (DEM)."
+
+extra:
+  recipe-maintainers:
+    - klarrieu
