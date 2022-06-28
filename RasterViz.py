@@ -18,7 +18,8 @@ This script can be called from Python using its class/methods or as a CLI utilit
 CLI Usage:
 
 "python RasterViz.py viz_type [-z (default=1)] [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-out_ext tif | img (default=tif)] [-make_png] [-make_kmz] [-docker] /path/to/dem"
+    [-cmap (default=terrain)] [-out_ext tif | img (default=tif)] [-make_png] [-make_kmz] [-docker] [-shell] 
+    /path/to/dem"
 
 Options:
     
@@ -50,6 +51,9 @@ Options:
     -docker: run GDAL commands from within the osgeo/gdal docker container. This makes it run slightly slower but will
              be needed to run all features if gdal install is on a version <2.2. If using docker, input path must be
              within the working directory path or a subdirectory.
+             
+    -shell: call GDAL functions (gdaldem, gdal_translate, gdalwarp) as shell commands instead of using Python bindings.
+            This may be faster than using pure Python but requires additional environment configuration.
 
     /path/to/dem.tif: path to input DEM, currently assumed to be in GeoTIFF format.
 
@@ -85,7 +89,9 @@ class RasterViz(object):
 
     See individual methods for further descriptions.
     """
-    def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, *args, **kwargs):
+    def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, shell=False, *args, **kwargs):
+        # call gdal from shell (faster) or Python bindings (easier install)
+        self.shell = shell
         # ref working directory in windows or linux
         pwd = "%cd%" if sys.platform == "win32" else "$(pwd)"
         if docker_run:
@@ -113,7 +119,7 @@ class RasterViz(object):
         # get projection, horizontal units of DEM
         self.proj, self.h_unit = self.get_projection()
         # scale horizontal units from lat/long --> meters when calculating hillshade, slope (assumes near equator)
-        self.scale = "-s 111120" if self.h_unit == "degree" else ""
+        self.scale = 111120 if self.h_unit == "degree" else 1
         # coordinate system to use for non-geodata visualization (i.e. PNG)
         self.viz_srs = "EPSG:3857"
         # determine if we will make png/kmz files after making GeoTIFF
@@ -153,8 +159,11 @@ class RasterViz(object):
     def asc_to_tif(self, asc):
         """Convert ascii grid to geotiff"""
         tif_name = os.path.basename(asc).split('.')[0] + ".tif"
-        cmd = f"{self.drun}gdal_translate -of GTiff {self.dp}{asc} {self.dp}{tif_name}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdal_translate -of GTiff {self.dp}{asc} {self.dp}{tif_name}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.Translate(f"{self.dp}{tif_name}", f"{self.dp}{asc}", format="GTiff")
         return tif_name
 
     def _check_dem_nodata(self):
@@ -214,14 +223,26 @@ class RasterViz(object):
             print("\nMaking multidirectional hillshade raster.")
         else:
             print(f"\nMaking hillshade raster with alt={alt}, azim={azim}.")
-        light_source = "-multidirectional" if multidirectional else f"-az {azim} -alt {alt}"
-        z_fact = f"-z {z}" if z != 1 else ""
         temp_path = self.intermediate_rasters["hillshade"]
         out_path = self.hillshade_ras
         # create intermediate hillshade
-        cmd = f"{self.drun}gdaldem hillshade {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"{z_fact} {self.scale} {light_source} -of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            z_fact = f"-z {z}" if z != 1 else ""
+            scale = f"-s {self.scale}" if self.scale != 1 else ""
+            light_source = "-multidirectional" if multidirectional else f"-az {azim} -alt {alt}"
+            cmd = f"{self.drun}gdaldem hillshade {self.dp}{self.dem} {self.dp}{temp_path} " \
+                  f"{z_fact} {scale} {light_source} -of {self.out_format}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            options = {"zFactor": z, "format": self.out_format}
+            if self.scale != 1:
+                options['scale'] = self.scale
+            if multidirectional:
+                options['multiDirectional'] = True
+            else:
+                options['altitude'] = alt
+                options['azimuth'] = azim
+            gdal.DEMProcessing(f"{self.dp}{temp_path}", f"{self.dp}{self.dem}", "hillshade", **options)
         self.tile_and_compress(temp_path, out_path)
         return out_path
 
@@ -231,9 +252,16 @@ class RasterViz(object):
         print(f"\nMaking slope raster.")
         temp_path = self.intermediate_rasters["slope"]
         out_path = f"{self.dem_name}_slope{self.ext}"
-        cmd = f"{self.drun}gdaldem slope {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"{self.scale} -of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            scale = f"-s {self.scale}" if self.scale != 1 else ""
+            cmd = f"{self.drun}gdaldem slope {self.dp}{self.dem} {self.dp}{temp_path} " \
+                  f"{scale} -of {self.out_format}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            options = {"format": self.out_format}
+            if self.scale != 1:
+                options['scale'] = self.scale
+            gdal.DEMProcessing(f"{self.dp}{temp_path}", f"{self.dp}{self.dem}", "slope", **options)
         self.tile_and_compress(temp_path, out_path)
         return out_path
 
@@ -243,9 +271,12 @@ class RasterViz(object):
         print("\nMaking aspect raster.")
         temp_path = self.intermediate_rasters["aspect"]
         out_path = f"{self.dem_name}_aspect{self.ext}"
-        cmd = f"{self.drun}gdaldem aspect {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"-of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdaldem aspect {self.dp}{self.dem} {self.dp}{temp_path} " \
+                  f"-of {self.out_format}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.DEMProcessing(f"{self.dp}{temp_path}", f"{self.dp}{self.dem}", "aspect", format=self.out_format)
         self.tile_and_compress(temp_path, out_path)
         return out_path
 
@@ -255,9 +286,12 @@ class RasterViz(object):
         print("\nMaking roughness raster.")
         temp_path = self.intermediate_rasters["roughness"]
         out_path = f"{self.dem_name}_roughness{self.ext}"
-        cmd = f"{self.drun}gdaldem roughness {self.dp}{self.dem} {self.dp}{temp_path} " \
-              f"-of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdaldem roughness {self.dp}{self.dem} {self.dp}{temp_path} " \
+                  f"-of {self.out_format}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.DEMProcessing(f"{self.dp}{temp_path}", f"{self.dp}{self.dem}", "Roughness", format=self.out_format)
         self.tile_and_compress(temp_path, out_path)
         return out_path
 
@@ -274,13 +308,18 @@ class RasterViz(object):
         temp_path = self.intermediate_rasters["color-relief"]
         out_path = self.color_relief_ras
         cmap_txt = self.get_cmap_txt(cmap, log_scale=log_scale)
-        cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
-                f"-of {self.out_format}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
-        self.tile_and_compress(temp_path, out_path)
+        if self.shell:
+            cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
+                    f"-of {self.out_format}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.DEMProcessing(f"{self.dp}{temp_path}", f"{self.dp}{self.dem}", "color-relief", colorFilename=cmap_txt,
+                               format=self.out_format)
         # set nodata value to 0 for color-relief
-        r = gdal.Open(out_path, gdal.GA_Update)
+        r = gdal.Open(temp_path, gdal.GA_Update)
         [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
+        r = None
+        self.tile_and_compress(temp_path, out_path)
         return out_path
 
     @_png_kmz_checker
@@ -300,10 +339,11 @@ class RasterViz(object):
         # blend images using GDAL and numpy to linearly interpolate RGB values
         temp_path = self.blend_images(blend_percent=blend_percent)
         out_path = f"{self.dem_name}_hillshade-color{self.ext}"
-        self.tile_and_compress(temp_path, out_path)
         # set nodata value to 0 for color-relief
-        r = gdal.Open(out_path, gdal.GA_Update)
+        r = gdal.Open(temp_path, gdal.GA_Update)
         [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
+        r = None
+        self.tile_and_compress(temp_path, out_path)
         return out_path
 
     def blend_images(self, blend_percent=60):
@@ -379,10 +419,15 @@ class RasterViz(object):
     def tile_and_compress(self, in_path, out_path):
         """Used to turn intermediate raster viz products into final outputs."""
         print("Tiling and compressing raster.")
-        cmd = f"{self.drun}gdal_translate {self.dp}{in_path} {self.dp}{out_path} " \
-              f"-co \"COMPRESS=LZW\" -co \"TILED=YES\" " \
-              f"-co \"blockxsize=256\" -co \"blockysize=256\" -co \"COPY_SRC_OVERVIEWS=YES\""
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdal_translate {self.dp}{in_path} {self.dp}{out_path} " \
+                  f"-co \"COMPRESS=LZW\" -co \"TILED=YES\" " \
+                  f"-co \"blockxsize=256\" -co \"blockysize=256\" -co \"COPY_SRC_OVERVIEWS=YES\""
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.Translate(f"{self.dp}{out_path}", f"{self.dp}{in_path}",
+                           options=f"-co \"COMPRESS=LZW\" -co \"TILED=YES\" "
+                                   f"-co \"blockxsize=256\" -co \"blockysize=256\" -co \"COPY_SRC_OVERVIEWS=YES\"")
         return out_path
 
     def raster_to_png(self, ras_path):
@@ -392,16 +437,22 @@ class RasterViz(object):
         # translate from DEM srs to EPSG 3857 (if DEM is not in this srs)
         if (self.proj is not None) and (self.proj != self.viz_srs):
             tmp_path = f"tmp_3857{self.ext}"
-            cmd = f"{self.drun}gdalwarp " \
-                  f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
-            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+            if self.shell:
+                cmd = f"{self.drun}gdalwarp " \
+                      f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
+                subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+            else:
+                gdal.Warp(f"{self.dp}{tmp_path}", f"{self.dp}{ras_path}", srcSRS=self.proj, dstSRS=self.viz_srs)
         else:
             tmp_path = ras_path
         # convert to PNG
         scale = self.get_scaling(tmp_path)
-        cmd = f"{self.drun}gdal_translate -ot Byte{scale} -of PNG " \
-              f"{self.dp}{tmp_path} {self.dp}{png_name}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -of PNG " \
+                  f"{self.dp}{tmp_path} {self.dp}{png_name}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.Translate(f"{self.dp}{png_name}", f"{self.dp}{tmp_path}", options=f"-ot Byte{scale} -of PNG")
         self.make_thumbnail(png_name)
         return png_name
 
@@ -410,9 +461,13 @@ class RasterViz(object):
         print("\nGenerating .kmz file.")
         kmz_name = ras_path.replace(self.ext, ".kmz")
         scale = self.get_scaling(ras_path)
-        cmd = f"{self.drun}gdal_translate -ot Byte{scale} -co format=png -of KMLSUPEROVERLAY " \
-              f"{self.dp}{ras_path} {self.dp}{kmz_name}"
-        subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        if self.shell:
+            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -co format=png -of KMLSUPEROVERLAY " \
+                  f"{self.dp}{ras_path} {self.dp}{kmz_name}"
+            subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
+        else:
+            gdal.Translate(f"{self.dp}{kmz_name}", f"{self.dp}{ras_path}",
+                           options=f"-ot Byte{scale} -co format=png -of KMLSUPEROVERLAY")
         return kmz_name
 
     @staticmethod
@@ -456,7 +511,7 @@ if __name__ == "__main__":
     # example Python run here
     """
     dem = './test/dem.tif'
-    viz = RasterViz(dem=dem, out_ext='.img', make_png=True, make_kmz=True, docker_run=False)
+    viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False, shell=False)
     viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
     viz.make_hillshade(multidirectional=True)
     viz.make_color_relief(cmap='gist_earth')
@@ -482,8 +537,10 @@ if __name__ == "__main__":
         make_png = True if ("-make_png" in argv) else False
         make_kmz = True if ("-make_kmz" in argv) else False
         docker_run = True if ("-docker" in argv) else False
+        shell = True if ("-shell" in argv) else False
         # instantiate RasterViz object
-        viz = RasterViz(dem=dem, out_ext=out_ext, make_png=make_png, make_kmz=make_kmz, docker_run=docker_run)
+        viz = RasterViz(dem=dem, out_ext=out_ext, make_png=make_png, make_kmz=make_kmz,
+                        docker_run=docker_run, shell=shell)
         # handle args/kwargs for hillshade
         if viz_type in ["hillshade", "hillshade-color"]:
             for i, arg in enumerate(argv):
