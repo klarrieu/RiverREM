@@ -11,7 +11,7 @@ import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
 from itertools import combinations
 import time
-from RasterViz import RasterViz
+from riverrem.RasterViz import RasterViz
 import logging
 
 level = logging.INFO
@@ -67,25 +67,26 @@ def print_usage():
 
 class REMMaker(object):
     """
-    An attempt to automatically make river REM from DEM
+    Handler to automatically make a river REM from an input DEM.
 
-    TODO:
-        - handling geographic coord system, could proj to 3857 or just not do geographic coords
-        - determine if/when to restrict usage based on pixel number
-        - create readme markdown
-        - compose blog post with pretty pictures
+    :param dem: path to input DEM raster.
+    :type dem: str
+    :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring.
+    :type cmap: str
+    :param interp_pts: maximum number of points to use for interpolation of river centerline elevation. Actual number
+                       of points is limited by number of DEM pixels along centerline, so less points may be used for
+                       lower resolution DEMs.
+    :type interp_pts: int
+    :param k: number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.
+    :type k: int
+    :param eps: fractional tolerance for errors in KD tree query. Higher values allow faster interpolation at the
+                expense of accuracy.
+    :type eps: float
+    :param workers: number of CPU threads to use for interpolation. -1 uses all threads.
+    :type workers: int
+
     """
-    def __init__(self, dem, cmap='mako_r', interp_pts=1e3, k=None, eps=0.1, workers=4):
-        """
-        :param dem: str, path to DEM raster
-        :param cmap: str, name of matplotlib/seaborn colormap to use for REM coloring
-        :param interp_pts: int, max number of points to use for interpolation.
-                           Actual number of points limited by number of DEM pixels along centerline,
-                           so less points will be used for lower resolution DEMs.
-        :param k: int, number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.
-        :param eps: float, fractional tolerance for errors in kd tree query
-        :param workers: int, number of CPU threads to use for interpolation. -1 = all threads.
-        """
+    def __init__(self, dem, cmap='mako_r', interp_pts=1000, k=None, eps=0.1, workers=4):
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
         self.get_spatial_metadata()

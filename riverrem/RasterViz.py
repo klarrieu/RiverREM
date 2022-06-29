@@ -73,21 +73,25 @@ def print_usage():
 
 
 class RasterViz(object):
-    """
-    Raster visualization object for handling DEM derivative product visualization processing routines.
+    """Handler to produce DEM derivatives/visualizations.
 
-    Usage: instantiate a RasterViz object with the DEM path as input, e.g.
-        viz = RasterViz(dem_path, make_png=[True/False], make_kmz=[True/False], docker_run=[True/False])
-    Then call the desired methods with optional arguments.
-    Current methods corresponding to different output products:
-        self.make_hillshade()
-        self.make_slope()
-        self.make_aspect()
-        self.make_roughness()
-        self.make_color_relief()
-        self.make_hillshade_color()
+    :param dem: path to input DEM, either in GeoTIFF (.tif), ASCII (.asc), or IMG (.img) format.
+    :type dem: str
+    :param out_ext: extension for output georaster files.
+    :type out_ext: str, '.tif' or '.img'
+    :param make_png: output a png image of visualizations (EPSG:3857) in addition to a raster in source projection.
+                     If this option is used, a thumbnail version of the png will also be produced.
+    :type make_png: bool
+    :param make_kmz: output a kmz file (e.g. Google Earth) of visualizations in addition to a raster in source
+                     projection.
+    :type make_kmz: bool
+    :param docker_run: only if shell=True as well, calls gdal utilities from shell with docker container. Must have the
+                       osgeo/gdal docker container configured locally to use this option.
+    :type docker_run: bool
+    :param shell: call gdal utilities from a shell instead of using the Python bindings. May run faster for large files
+                  but can be more difficult to configure GDAL environment outside conda.
+    :type shell: bool
 
-    See individual methods for further descriptions.
     """
     def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, shell=False, *args, **kwargs):
         # call gdal from shell (faster) or Python bindings (easier install)
@@ -151,12 +155,12 @@ class RasterViz(object):
         # if given DEM is in ASCII, convert to GeoTIFF
         if dem.lower().endswith('.asc'):
             print("Given DEM was in ASCII format, converting to GeoTIFF.")
-            self._dem = self.asc_to_tif(dem)
+            self._dem = self._asc_to_tif(dem)
         # if given DEM doesn't have NoData value, assume it is zero
         self._check_dem_nodata()
         return self._dem
 
-    def asc_to_tif(self, asc):
+    def _asc_to_tif(self, asc):
         """Convert ascii grid to geotiff"""
         tif_name = os.path.basename(asc).split('.')[0] + ".tif"
         if self.shell:
@@ -206,18 +210,25 @@ class RasterViz(object):
                 raise Exception(e)
             finally:
                 # clean up regardless of whether something failed
-                self.clean_up()
+                self._clean_up()
             return
         return wrapper
 
     @_png_kmz_checker
     def make_hillshade(self, z=1, alt=45, azim=315, multidirectional=False, *args, **kwargs):
-        """
-        Make hillshade raster from DEM.
-        :param z: z factor for scaling/exaggerating vertical scale differences (default 1) [>0].
-        :param alt: numeric, altitude of light source in degrees (default 45) [0-90]
-        :param azim: numeric, azimuth for light source in degrees (default 315) [0-360]
-        :param multidirectional: bool, makes multidirectional hillshade if True, overriding alt and azim.
+        """Make hillshade raster from the input DEM.
+
+        :param z: z factor for exaggerating vertical scale differences (default 1).
+        :type z: float >1
+        :param alt: altitude of light source in degrees (default 45).
+        :type alt: float [0-90]
+        :param azim: azimuth for light source in degrees (default 315).
+        :type azim: float [0-360]
+        :param multidirectional: makes multidirectional hillshade if True, overriding alt and azim.
+        :type multidirectional: bool
+
+        :returns: path to output hillshade raster.
+        :rtype: str
         """
         if multidirectional:
             print("\nMaking multidirectional hillshade raster.")
@@ -248,7 +259,11 @@ class RasterViz(object):
 
     @_png_kmz_checker
     def make_slope(self, *args, **kwargs):
-        """Make slope map from DEM, with slope at each pixel in degrees [0-90]"""
+        """Make slope map from DEM, with slope at each pixel in degrees [0-90].
+
+        :returns: path to output slope raster.
+        :rtype: str
+        """
         print(f"\nMaking slope raster.")
         temp_path = self.intermediate_rasters["slope"]
         out_path = f"{self.dem_name}_slope{self.ext}"
@@ -267,7 +282,11 @@ class RasterViz(object):
 
     @_png_kmz_checker
     def make_aspect(self, *args, **kwargs):
-        """Make aspect map from DEM, with aspect at each pixel in degrees [0-360]"""
+        """Make aspect map from DEM, with aspect at each pixel in degrees [0-360].
+
+        :returns: path to output aspect raster.
+        :rtype: str
+        """
         print("\nMaking aspect raster.")
         temp_path = self.intermediate_rasters["aspect"]
         out_path = f"{self.dem_name}_aspect{self.ext}"
@@ -282,7 +301,11 @@ class RasterViz(object):
 
     @_png_kmz_checker
     def make_roughness(self, *args, **kwargs):
-        """Make roughness map from DEM."""
+        """Make roughness map from DEM.
+
+        :returns: path to output roughness raster.
+        :rtype: str
+        """
         print("\nMaking roughness raster.")
         temp_path = self.intermediate_rasters["roughness"]
         out_path = f"{self.dem_name}_roughness{self.ext}"
@@ -297,12 +320,17 @@ class RasterViz(object):
 
     @_png_kmz_checker
     def make_color_relief(self, cmap='terrain', log_scale=False, *args, **kwargs):
-        """
-        Make color relief map from DEM (4 band RGBA raster)
-        :param cmap: str, matplotlib colormap to use for making color relief map.
+        """Make color relief map from DEM (3 band RGB raster).
+
+        :param cmap: matplotlib or seaborn named colormap to use for making color relief map.
                      (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+        :type cmap: str
         :param log_scale: bool, makes the colormap on a log scale from zero, so terrain closer to 0 elevation
                           has greater color variation. Intended to be used for REMs or coastal datasets.
+        :type log_scale: bool
+
+        :returns: path to output color-relief raster.
+        :rtype: str
         """
         print(f"\nMaking color relief map with cmap={cmap}.")
         temp_path = self.intermediate_rasters["color-relief"]
@@ -324,7 +352,17 @@ class RasterViz(object):
 
     @_png_kmz_checker
     def make_hillshade_color(self, blend_percent=60, *args, **kwargs):
-        """Make a pretty composite hillshade/color-relief image"""
+        """Make a pretty composite hillshade/color-relief image.
+
+        :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight.
+        :type blend_percent: float [0-100]
+
+        This method also accepts all arguments of `make_hillshade` and `make_color_relief` if the respective rasters
+        have not yet been created.
+
+        :returns: path to output hillshade-color raster.
+        :rtype: str
+        """
         # make hillshade and/or color-relief if haven't already
         # temp variables to override make_png, make_kmz
         _make_png, _make_kmz = self.make_png, self.make_kmz
@@ -349,7 +387,9 @@ class RasterViz(object):
     def blend_images(self, blend_percent=60):
         """
         Blend hillshade and color-relief rasters by linearly interpolating RGB values
+
         :param blend_percent: Percent weight of hillshdae in blend, color-relief takes opposite weight [0-100]. Default 60.
+
         """
         b = blend_percent / 100
         # read in hillshade and color relief rasters as arrays
@@ -368,13 +408,13 @@ class RasterViz(object):
         return blend_ras_name
 
     def get_cmap_txt(self, cmap='terrain', log_scale=False):
-        """
-        Make a matplotlib named colormap into a gdaldem
-        colormap text file for color-relief mapping.
-        Format is "elevation R G B" where RGB are in [0-255] range
+        """Make a matplotlib named colormap into a gdaldem colormap text file for color-relief mapping.
+        Format is "elevation R G B" where RGB are in [0-255] range.
+
         :param cmap: colormap to use for making color relief map.
         :param log_scale: bool, logarithmically scale colormap, showing greatest color variation at zero elevation.
                           Intended to be used for REMs or coastal datasets.
+
         :return: .txt file containing colormap mapped to DEM
         """
         min_elev, max_elev = self.get_elev_range()
@@ -496,7 +536,7 @@ class RasterViz(object):
         png_thumbnail.save(png_thumbnail_name)
         return png_thumbnail_name
 
-    def clean_up(self):
+    def _clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
         int_files = [*self.intermediate_rasters.values(),
                      f"tmp_3857{self.ext}",
