@@ -10,7 +10,6 @@ from geopandas import clip
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
 from itertools import combinations
-import subprocess
 import time
 from RasterViz import RasterViz
 import logging
@@ -235,8 +234,7 @@ class REMMaker(object):
         centerline_ras = f"{self.dem_name}_centerline.tif"
         extent = f"-te {' '.join(map(str, self.extent))}"
         res = f"-tr {self.cell_w} {self.cell_h}"
-        cmd = f"gdal_rasterize -a id {extent} {res} {self.river_shp} {centerline_ras}"
-        subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+        gdal.Rasterize(centerline_ras, self.river_shp, options=f"-a id {extent} {res}")
         # raster to numpy array same shape as DEM
         r = gdal.Open(centerline_ras, gdal.GA_ReadOnly)
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
@@ -354,11 +352,12 @@ class REMMaker(object):
 
 if __name__ == "__main__":
     # example Python run
-    """
-    dem = "./test/dem.tif"
+
+    dem = "./test_dems/yukon_5m.tif"
     rem_maker = REMMaker(dem=dem, cmap='mako_r', eps=0.1, workers=4)
     rem_maker.run()
-    """
+    #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
+    #rem_maker.make_image_blend()
 
     # CLI call parsing
     argv = sys.argv
