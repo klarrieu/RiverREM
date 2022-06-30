@@ -1,0 +1,10 @@
+name: OT
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.6
+  - osmnx
+  - dataclasses
+  - sphinx
+prefix: C:\ProgramData\Anaconda3\envs\OT

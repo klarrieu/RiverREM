@@ -1,5 +1,6 @@
 .idea/
 cache/
+riverrem/.osm_cache/
 __pycache__/
 venv/
 test_dems/

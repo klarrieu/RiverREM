@@ -13,6 +13,8 @@ from itertools import combinations
 import time
 from riverrem.RasterViz import RasterViz
 import logging
+if 'READTHEDOCS' not in os.environ:
+    import cython_generated_ext
 
 level = logging.INFO
 fmt = '[%(levelname)s] %(asctime)s - %(message)s'
