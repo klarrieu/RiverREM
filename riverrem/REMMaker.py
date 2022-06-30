@@ -15,7 +15,7 @@ from riverrem.RasterViz import RasterViz
 import logging
 
 level = logging.INFO
-fmt = '[%(levelname)s %(asctime)s - %(message)s'
+fmt = '[%(levelname)s] %(asctime)s - %(message)s'
 logging.basicConfig(level=level, format=fmt)
 
 start = time.time()
@@ -53,7 +53,7 @@ Options:
     
 Notes: River centerlines used to create REMs are retrieved from OpenStreetMap (OSM). If a desired river segment is 
        not listed on OSM, a new river centerline can be created/edited at: https://www.openstreetmap.org/edit 
-       (clear the ./cache folder after using the OSM editor to get the updated centerline).
+       (clear the ./.osm_cache folder after using the OSM editor to get the updated centerline).
        
        For large/high resolution DEMs, the interpolation can take a long time. Additionally, it may be necessary
        to increase the value of k if interpolation artefacts (discrete linear breaks in REM coloring) are present.
@@ -71,30 +71,34 @@ class REMMaker(object):
 
     :param dem: path to input DEM raster.
     :type dem: str
-    :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring.
-    :type cmap: str
+    :param out_dir: output file directory. Defaults to current working directory.
+    :type out_dir: str
     :param interp_pts: maximum number of points to use for interpolation of river centerline elevation. Actual number
                        of points is limited by number of DEM pixels along centerline, so less points may be used for
                        lower resolution DEMs.
     :type interp_pts: int
-    :param k: number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.
+    :param k: number of nearest neighbors to use for IDW interpolation. If None, an appropriate value is estimated.
     :type k: int
-    :param eps: fractional tolerance for errors in KD tree query. Higher values allow faster interpolation at the
-                expense of accuracy.
+    :param eps: fractional error tolerance for finding nearest neighbors in KD tree query. Higher values allow faster
+                interpolation at the expense of accuracy.
     :type eps: float
     :param workers: number of CPU threads to use for interpolation. -1 uses all threads.
     :type workers: int
+    :param cache_dir: cache directory
+    :type cache_dir: str
 
     """
-    def __init__(self, dem, cmap='mako_r', interp_pts=1000, k=None, eps=0.1, workers=4):
+    def __init__(self, dem, out_dir='./', interp_pts=1000, k=None, eps=0.1, workers=4, cache_dir='./.cache'):
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
+        self.out_dir = out_dir
+        self.cache_dir = cache_dir
         self.get_spatial_metadata()
-        self.cmap = cmap
         self.interp_pts = int(interp_pts)
         self.k = int(k) if k else None
         self.eps = float(eps)
         self.workers = int(workers)
+        self.rem_ras = None
 
     @property
     def dem(self):
@@ -105,7 +109,29 @@ class REMMaker(object):
         if not os.path.exists(dem):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
-        return self._dem
+        return
+
+    @property
+    def out_dir(self):
+        return self._out_dir
+
+    @out_dir.setter
+    def out_dir(self, out_dir):
+        if not os.path.exists(out_dir):
+            raise IOError(f"The output directory does not exist: {out_dir}")
+        self._out_dir = out_dir
+        return
+
+    @property
+    def cache_dir(self):
+        return self._cache_dir
+
+    @cache_dir.setter
+    def cache_dir(self, cache_dir):
+        if not os.path.exists(cache_dir):
+            os.mkdir(cache_dir)
+        self._cache_dir = cache_dir
+        return
 
     def get_spatial_metadata(self):
         """
@@ -152,6 +178,7 @@ class REMMaker(object):
         """Find centerline of river(s) within DEM area using OSM Ways"""
         logging.info("Finding river centerline.")
         # get OSM Ways within bbox of DEM (returns geopandas geodataframe)
+        osmnx.settings.cache_folder = './.osm_cache'
         self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
         if len(self.rivers) == 0:
             raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMap:\n"
@@ -204,7 +231,7 @@ class REMMaker(object):
         """Make points along river centerline into a shapefile"""
         # create points shapefile
         logging.info("Making river points shapefile.")
-        self.river_shp = f'{self.dem_name}_points.shp'
+        self.river_shp = os.path.join(self.out_dir, f'{self.dem_name}_river_pts.shp')
         driver = ogr.GetDriverByName('Esri Shapefile')
         ds = driver.CreateDataSource(self.river_shp)
         # create empty multiline geometry layer
@@ -232,12 +259,12 @@ class REMMaker(object):
         """Get DEM values along river centerline"""
         logging.info("Getting river elevation at DEM pixels.")
         # gdal_rasterize centerline
-        centerline_ras = f"{self.dem_name}_centerline.tif"
+        self.centerline_ras = os.path.join(self.cache_dir, f"{self.dem_name}_centerline.tif")
         extent = f"-te {' '.join(map(str, self.extent))}"
         res = f"-tr {self.cell_w} {self.cell_h}"
-        gdal.Rasterize(centerline_ras, self.river_shp, options=f"-a id {extent} {res}")
+        gdal.Rasterize(self.centerline_ras, self.river_shp, options=f"-a id {extent} {res}")
         # raster to numpy array same shape as DEM
-        r = gdal.Open(centerline_ras, gdal.GA_ReadOnly)
+        r = gdal.Open(self.centerline_ras, gdal.GA_ReadOnly)
         self.centerline_array = r.GetRasterBand(1).ReadAsArray()
         # remove cells where DEM is null
         self.centerline_array = np.where(np.isnan(self.dem_array), np.nan, self.centerline_array)
@@ -287,25 +314,18 @@ class REMMaker(object):
         tree = KDTree(self.river_coords)
         # find k nearest neighbors
         logging.info("Querying tree.")
-        try:
-            distances, indices = tree.query(c_interpolate, k=self.k, eps=self.eps, n_jobs=self.workers)
+        logging.info("Chunking query...")
+        chunk_size = 1e6
+        # iterate over chunks
+        chunk_count = c_interpolate.shape[0] // chunk_size
+        interpolated_values = np.array([])
+        for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
+            logging.info(f"{i / chunk_count * 100:.2f}%")
+            distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
-            logging.info("Making interpolated WSE array")
             weights = 1 / distances  # weight river elevations by 1 / distance
             weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
-            interpolated_values = (weights * self.river_wses[indices]).sum(axis=1)  # apply weights
-        except MemoryError:
-            logging.info("WARNING: Large dataset. Chunking query...")
-            chunk_size = 1e6
-            # iterate over chunks
-            chunk_count = c_interpolate.shape[0] // chunk_size
-            interpolated_values = np.array([])
-            for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
-                logging.info(f"{i / chunk_count * 100:.2f}%")
-                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
-                weights = 1 / distances
-                weights = weights / weights.sum(axis=1).reshape(-1, 1)
-                interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
+            interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
         # create interpolated WSE array as elevations along centerline, nans everywhere else
         logging.info("Created interpolated WSE array.")
         self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
@@ -317,7 +337,7 @@ class REMMaker(object):
         """Subtract interpolated river elevation from DEM elevation to get REM"""
         logging.info("\nDetrending DEM.")
         self.rem_array = self.dem_array - self.wse_interp_array
-        self.rem_ras = f"{self.dem_name}_REM.tif"
+        self.rem_ras = os.path.join(self.out_dir, f"{self.dem_name}_REM.tif")
         # set nans back to nodata value
         self.rem_array = np.where(np.isnan(self.rem_array), self.nodata_val, self.rem_array)
         # make copy of DEM raster
@@ -328,37 +348,72 @@ class REMMaker(object):
         rem.GetRasterBand(1).WriteArray(self.rem_array)
         return self.rem_ras
 
-    def make_image_blend(self):
-        """Blend REM color-relief with DEM hillshade to make pretty finished product"""
-        logging.info("\nBlending REM with hillshade.")
-        # make hillshade of original DEM
-        dem_viz = RasterViz(self.dem, out_ext=".tif")
-        dem_viz.make_hillshade(multidirectional=True, z=2)
-        # make hillshdae color using hillshade from DEM and color-relief from REM
-        rem_viz = RasterViz(self.rem_ras, out_ext=".tif", make_png=True, make_kmz=True, docker_run=False)
-        rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
-        # rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
-        rem_viz.make_hillshade_color(cmap=self.cmap, log_scale=True, blend_percent=25)
-        return
+    def make_rem(self):
+        """Make a relative elevation model (REM). Note that this method creates a raw REM raster and doesn't apply
+        color-relief/shading for visualization.
 
-    def run(self):
-        """Make pretty REM/hillshade blend from DEM"""
+        :returns: path to output REM raster.
+        :rtype: str
+
+        """
         self.get_river_centerline()
         self.get_river_elev()
         self.interp_river_elev()
         self.detrend_dem()
-        self.make_image_blend()
+        self.clean_up()
+        return self.rem_ras
+
+    def make_rem_viz(self, cmap='mako_r', z=2, blend_percent=25, make_png=True, make_kmz=False, *args, **kwargs):
+        """Create REM visualization by blending the REM color-relief with a DEM hillshade to make a pretty finished
+        product.
+
+        :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring. Note the applied colormap is
+                     logarithmically scaled in order to emphasize elevations differences close to the river centerline.
+        :type cmap: str
+        :param z: z factor for exaggerating vertical scale differences of hillshade.
+        :type z: float >1
+        :param blend_percent: Percent weight of hillshdae in blended image, color-relief takes opposite weight.
+        :type blend_percent: float [0-100]
+
+        This method also accepts any arguments for the RasterViz module's make_hillshade_color method.
+
+        :returns: path to output raster
+        :rtype: str
+        """
+        if not self.rem_ras:
+            logging.info("No REM exists yet. Creating REM now.")
+            self.make_rem()
+        logging.info("\nBlending REM with hillshade.")
+        # make hillshade of original DEM
+        dem_viz = RasterViz(self.dem, out_dir=self.cache_dir, out_ext=".tif")
+        dem_viz.make_hillshade(multidirectional=True, z=z)
+        # make hillshdae color using hillshade from DEM and color-relief from REM
+        rem_viz = RasterViz(self.rem_ras, out_dir=self.out_dir, out_ext=".tif", make_png=make_png, make_kmz=make_kmz, *args, **kwargs)
+        rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
+        rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
+        viz_ras = rem_viz.make_hillshade_color(cmap=cmap, log_scale=True, blend_percent=blend_percent, *args, **kwargs)
+        self.clean_up()
+        return viz_ras
+
+    def clean_up(self):
+        for dir, subdirs, files in os.walk(self.cache_dir):
+            for f in files:
+                try:
+                    filepath = os.path.join(dir, f)
+                    os.remove(filepath)
+                except:
+                    logging.warning(f"Cannot delete cache file {filepath}.")
         return
 
 
 if __name__ == "__main__":
     # example Python run
-
-    dem = "./test_dems/yukon_5m.tif"
-    rem_maker = REMMaker(dem=dem, cmap='mako_r', eps=0.1, workers=4)
-    rem_maker.run()
-    #rem_maker.rem_ras = f"{rem_maker.dem_name}_REM.tif"
-    #rem_maker.make_image_blend()
+    """
+    dem = "./test/dem.tif"
+    rem_maker = REMMaker(dem=dem, out_dir='/out/dir', eps=0.1, workers=4)
+    # rem_maker.make_rem()
+    rem_maker.make_rem_viz(cmap='mako_r')
+    """
 
     # CLI call parsing
     argv = sys.argv
@@ -372,7 +427,8 @@ if __name__ == "__main__":
                 k = arg.replace('-', '')
                 kwargs[k] = argv[i+1]
         rem_maker = REMMaker(dem=dem, **kwargs)
-        rem_maker.run()
+        rem_maker.make_rem()
+        rem_maker.make_rem_viz(**kwargs)
 
     end = time.time()
     logging.info(f'\nDone.\nRan in {end - start:.0f} s.')

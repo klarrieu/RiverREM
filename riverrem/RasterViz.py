@@ -77,6 +77,8 @@ class RasterViz(object):
 
     :param dem: path to input DEM, either in GeoTIFF (.tif), ASCII (.asc), or IMG (.img) format.
     :type dem: str
+    :param out_dir: output file directory. Defaults to current working directory.
+    :type out_dir: str
     :param out_ext: extension for output georaster files.
     :type out_ext: str, '.tif' or '.img'
     :param make_png: output a png image of visualizations (EPSG:3857) in addition to a raster in source projection.
@@ -91,14 +93,20 @@ class RasterViz(object):
     :param shell: call gdal utilities from a shell instead of using the Python bindings. May run faster for large files
                   but can be more difficult to configure GDAL environment outside conda.
     :type shell: bool
+    :param cache_dir: cache directory
+    :type cache_dir: str
 
     """
-    def __init__(self, dem, out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, shell=False, *args, **kwargs):
+    def __init__(self, dem, out_dir='./', out_ext=".tif", make_png=False, make_kmz=False, docker_run=False, shell=False,
+                 cache_dir='./.cache', *args, **kwargs):
+        # set output and cache directories
+        self.out_dir = out_dir
+        self.cache_dir = cache_dir
         # call gdal from shell (faster) or Python bindings (easier install)
         self.shell = shell
         # ref working directory in windows or linux
         pwd = "%cd%" if sys.platform == "win32" else "$(pwd)"
-        if docker_run:
+        if docker_run and shell:
             # docker run string to call a command in the osgeo/gdal container
             self.drun = f"docker run -v {pwd}:/data osgeo/gdal "
             # docker path for mounted pwd volume
@@ -136,11 +144,14 @@ class RasterViz(object):
                           "roughness": self.make_roughness,
                           "color-relief": self.make_color_relief,
                           "hillshade-color": self.make_hillshade_color}
+        # names for intermediate and output rasters
+        self.intermediate_rasters = {viz: os.path.join(self.cache_dir, f"intermediate_{viz}{self.ext}")
+                                     for viz in self.viz_types.keys()}
+        self.out_rasters = {viz: os.path.join(self.out_dir, f"{self.dem_name}_{viz}{self.ext}")
+                            for viz in self.viz_types.keys()}
         # for hillshade-color, keep track of hillshade and color-relief
-        self.hillshade_ras = f"{self.dem_name}_hillshade{self.ext}"
-        self.color_relief_ras = f"{self.dem_name}_color-relief{self.ext}"
-        # names for intermediate rasters to make output GeoTIFFs
-        self.intermediate_rasters = {viz: f"intermediate_{viz}{self.ext}" for viz in self.viz_types.keys()}
+        self.hillshade_ras = self.out_rasters["hillshade"]
+        self.color_relief_ras = self.out_rasters["color-relief"]
 
     @property
     def dem(self):
@@ -158,7 +169,29 @@ class RasterViz(object):
             self._dem = self._asc_to_tif(dem)
         # if given DEM doesn't have NoData value, assume it is zero
         self._check_dem_nodata()
-        return self._dem
+        return
+
+    @property
+    def out_dir(self):
+        return self._out_dir
+
+    @out_dir.setter
+    def out_dir(self, out_dir):
+        if not os.path.exists(out_dir):
+            raise IOError(f"The output directory does not exist: {out_dir}")
+        self._out_dir = out_dir
+        return
+
+    @property
+    def cache_dir(self):
+        return self._cache_dir
+
+    @cache_dir.setter
+    def cache_dir(self, cache_dir):
+        if not os.path.exists(cache_dir):
+            os.mkdir(cache_dir)
+        self._cache_dir = cache_dir
+        return
 
     def _asc_to_tif(self, asc):
         """Convert ascii grid to geotiff"""
@@ -177,7 +210,7 @@ class RasterViz(object):
         if band.GetNoDataValue() is None:
             print("WARNING: NoData value not found for input DEM. Assuming NoData value is 0.")
             # make a copy of the DEM
-            dem_copy_name = f"dem_copy{self.ext}"
+            dem_copy_name = os.path.join(self.cache_dir, f"dem_copy{self.ext}")
             driver = gdal.GetDriverByName(self.out_format)
             dem_copy = driver.CreateCopy(dem_copy_name, r, strict=0)
             # assign nodata value for copy
@@ -211,7 +244,7 @@ class RasterViz(object):
             finally:
                 # clean up regardless of whether something failed
                 self._clean_up()
-            return
+            return ras_path
         return wrapper
 
     @_png_kmz_checker
@@ -266,7 +299,7 @@ class RasterViz(object):
         """
         print(f"\nMaking slope raster.")
         temp_path = self.intermediate_rasters["slope"]
-        out_path = f"{self.dem_name}_slope{self.ext}"
+        out_path = self.out_rasters["slope"]
         if self.shell:
             scale = f"-s {self.scale}" if self.scale != 1 else ""
             cmd = f"{self.drun}gdaldem slope {self.dp}{self.dem} {self.dp}{temp_path} " \
@@ -289,7 +322,7 @@ class RasterViz(object):
         """
         print("\nMaking aspect raster.")
         temp_path = self.intermediate_rasters["aspect"]
-        out_path = f"{self.dem_name}_aspect{self.ext}"
+        out_path = self.out_rasters["aspect"]
         if self.shell:
             cmd = f"{self.drun}gdaldem aspect {self.dp}{self.dem} {self.dp}{temp_path} " \
                   f"-of {self.out_format}"
@@ -308,7 +341,7 @@ class RasterViz(object):
         """
         print("\nMaking roughness raster.")
         temp_path = self.intermediate_rasters["roughness"]
-        out_path = f"{self.dem_name}_roughness{self.ext}"
+        out_path = self.out_rasters["roughness"]
         if self.shell:
             cmd = f"{self.drun}gdaldem roughness {self.dp}{self.dem} {self.dp}{temp_path} " \
                   f"-of {self.out_format}"
@@ -376,7 +409,7 @@ class RasterViz(object):
         print("\nMaking hillshade-color composite raster.")
         # blend images using GDAL and numpy to linearly interpolate RGB values
         temp_path = self.blend_images(blend_percent=blend_percent)
-        out_path = f"{self.dem_name}_hillshade-color{self.ext}"
+        out_path = self.out_rasters["hillshade-color"]
         # set nodata value to 0 for color-relief
         r = gdal.Open(temp_path, gdal.GA_Update)
         [r.GetRasterBand(i+1).SetNoDataValue(0) for i in range(3)]
@@ -429,7 +462,7 @@ class RasterViz(object):
         # convert output RGB colors on [0-1] range to [1-255] range used by gdaldem (reserving 0 for nodata)
         cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
         # make cmap text file to be read by gdaldem color-relief
-        cmap_txt = f'{self.dem_name}_cmap.txt'
+        cmap_txt = os.path.join(self.cache_dir, f'{self.dem_name}_cmap.txt')
         with open(cmap_txt, 'w') as f:
             lines = [f'{elev} {" ".join(map(str, cm(i)))}\n' for i, elev in enumerate(elevations)]
             lines.append("nv 0 0 0\n")
@@ -476,7 +509,7 @@ class RasterViz(object):
         png_name = ras_path.replace(self.ext, ".png")
         # translate from DEM srs to EPSG 3857 (if DEM is not in this srs)
         if (self.proj is not None) and (self.proj != self.viz_srs):
-            tmp_path = f"tmp_3857{self.ext}"
+            tmp_path = os.path.join(self.cache_dir, f"tmp_3857{self.ext}")
             if self.shell:
                 cmd = f"{self.drun}gdalwarp " \
                       f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
@@ -539,8 +572,8 @@ class RasterViz(object):
     def _clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
         int_files = [*self.intermediate_rasters.values(),
-                     f"tmp_3857{self.ext}",
-                     f"{self.dem_name}_cmap.txt"]
+                     os.path.join(self.cache_dir, f"tmp_3857{self.ext}"),
+                     os.path.join(self.cache_dir, f"{self.dem_name}_cmap.txt")]
         int_files += [f + ".aux.xml" for f in int_files]
         for f in int_files:
             if os.path.exists(f):
@@ -551,7 +584,7 @@ if __name__ == "__main__":
     # example Python run here
     """
     dem = './test/dem.tif'
-    viz = RasterViz(dem=dem, out_ext='.tif', make_png=True, make_kmz=True, docker_run=False, shell=False)
+    viz = RasterViz(dem=dem, out_dir='/out/dir', out_ext='.tif', make_png=True, make_kmz=True)
     viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
     viz.make_hillshade(multidirectional=True)
     viz.make_color_relief(cmap='gist_earth')

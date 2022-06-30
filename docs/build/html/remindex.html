@@ -85,35 +85,65 @@ from default values:</p>
 <li><p>increasing workers (if more CPU threads are available)</p></li>
 </ul>
 </div></blockquote>
-<span class="target" id="module-riverrem.MakeREM"></span><dl class="py class">
-<dt class="sig sig-object py" id="riverrem.MakeREM.REMMaker">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">riverrem.MakeREM.</span></span><span class="sig-name descname"><span class="pre">REMMaker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dem</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cmap</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mako_r'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interp_pts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.MakeREM.REMMaker" title="Permalink to this definition"></a></dt>
+<span class="target" id="module-riverrem.REMMaker"></span><dl class="py class">
+<dt class="sig sig-object py" id="riverrem.REMMaker.REMMaker">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">riverrem.REMMaker.</span></span><span class="sig-name descname"><span class="pre">REMMaker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dem</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interp_pts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./.cache'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.REMMaker" title="Permalink to this definition"></a></dt>
 <dd><p>Handler to automatically make a river REM from an input DEM.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>dem</strong> (<em>str</em>) – path to input DEM raster.</p></li>
-<li><p><strong>cmap</strong> (<em>str</em>) – name of matplotlib/seaborn named colormap to use for REM coloring.</p></li>
+<li><p><strong>out_dir</strong> (<em>str</em>) – output file directory. Defaults to current working directory.</p></li>
 <li><p><strong>interp_pts</strong> (<em>int</em>) – maximum number of points to use for interpolation of river centerline elevation. Actual number
 of points is limited by number of DEM pixels along centerline, so less points may be used for
 lower resolution DEMs.</p></li>
-<li><p><strong>k</strong> (<em>int</em>) – number of nearest neighbors to use for interpolation. If None, an appropriate value is estimated.</p></li>
-<li><p><strong>eps</strong> (<em>float</em>) – fractional tolerance for errors in KD tree query. Higher values allow faster interpolation at the
-expense of accuracy.</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of nearest neighbors to use for IDW interpolation. If None, an appropriate value is estimated.</p></li>
+<li><p><strong>eps</strong> (<em>float</em>) – fractional error tolerance for finding nearest neighbors in KD tree query. Higher values allow faster
+interpolation at the expense of accuracy.</p></li>
 <li><p><strong>workers</strong> (<em>int</em>) – number of CPU threads to use for interpolation. -1 uses all threads.</p></li>
+<li><p><strong>cache_dir</strong> (<em>str</em>) – cache directory</p></li>
 </ul>
 </dd>
 </dl>
 <dl class="py method">
-<dt class="sig sig-object py" id="riverrem.MakeREM.REMMaker.make_image_blend">
-<span class="sig-name descname"><span class="pre">make_image_blend</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.MakeREM.REMMaker.make_image_blend" title="Permalink to this definition"></a></dt>
-<dd><p>Blend REM color-relief with DEM hillshade to make pretty finished product</p>
+<dt class="sig sig-object py" id="riverrem.REMMaker.REMMaker.make_rem">
+<span class="sig-name descname"><span class="pre">make_rem</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.REMMaker.make_rem" title="Permalink to this definition"></a></dt>
+<dd><p>Make a relative elevation model (REM). Note that this method creates a raw REM raster and doesn’t apply
+color-relief/shading for visualization.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>path to output REM raster.</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="riverrem.MakeREM.REMMaker.run">
-<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.MakeREM.REMMaker.run" title="Permalink to this definition"></a></dt>
-<dd><p>Make pretty REM/hillshade blend from DEM</p>
+<dt class="sig sig-object py" id="riverrem.REMMaker.REMMaker.make_rem_viz">
+<span class="sig-name descname"><span class="pre">make_rem_viz</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cmap</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mako_r'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">blend_percent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">25</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">make_png</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">make_kmz</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.REMMaker.make_rem_viz" title="Permalink to this definition"></a></dt>
+<dd><p>Create REM visualization by blending the REM color-relief with a DEM hillshade to make a pretty finished
+product.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cmap</strong> (<em>str</em>) – name of matplotlib/seaborn named colormap to use for REM coloring. Note the applied colormap is
+logarithmically scaled in order to emphasize elevations differences close to the river centerline.</p></li>
+<li><p><strong>z</strong> (<em>float &gt;1</em>) – z factor for exaggerating vertical scale differences of hillshade.</p></li>
+<li><p><strong>blend_percent</strong> (<em>float</em><em> [</em><em>0-100</em><em>]</em>) – Percent weight of hillshdae in blended image, color-relief takes opposite weight.</p></li>
+</ul>
+</dd>
+</dl>
+<p>This method also accepts any arguments for the RasterViz module’s make_hillshade_color method.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>path to output raster</p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>str</p>
+</dd>
+</dl>
 </dd></dl>
 
 </dd></dl>

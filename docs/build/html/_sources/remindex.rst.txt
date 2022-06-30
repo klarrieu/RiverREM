@@ -17,7 +17,7 @@ from default values:
     - increasing eps
     - increasing workers (if more CPU threads are available)
 
-.. automodule:: riverrem.MakeREM
+.. automodule:: riverrem.REMMaker
 
-.. autoclass:: riverrem.MakeREM.REMMaker
-    :members: run, make_image_blend
+.. autoclass:: riverrem.REMMaker.REMMaker
+    :members: make_rem, make_rem_viz
