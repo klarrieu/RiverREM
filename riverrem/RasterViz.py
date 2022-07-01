@@ -9,8 +9,6 @@ import subprocess
 import seaborn as sn
 import numpy as np
 import time
-if 'READTHEDOCS' not in os.environ:
-    import cython_generated_ext
 start = time.time()  # track time for script to finish
 
 usage = """
