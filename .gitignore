@@ -5,7 +5,6 @@ __pycache__/
 venv/
 test_dems/
 *.tif
-*.png
 *.kmz
 *.aux.xml
 *.dbf
