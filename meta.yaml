@@ -20,6 +20,7 @@ requirements:
     - shapely
     - geopandas
     - PIL
+    - dataclasses
 
 about:
   home: https://github.com/klarrieu/RiverREM
