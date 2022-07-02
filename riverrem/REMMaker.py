@@ -143,6 +143,9 @@ class REMMaker(object):
         r = gdal.Open(self.dem, gdal.GA_ReadOnly)
         self.proj = osr.SpatialReference(wkt=r.GetProjection())
         self.epsg_code = self.proj.GetAttrValue('AUTHORITY', 1)
+        self.h_unit = self.proj.GetAttrValue('UNIT')
+        if self.epsg_code is None or self.h_unit is None:
+            raise IOError("ERROR: CRS metadata is missing from the input DEM.")
         logging.info("Reading DEM as array.")
         band = r.GetRasterBand(1)
         self.dem_array = band.ReadAsArray()
@@ -181,8 +184,8 @@ class REMMaker(object):
         osmnx.settings.cache_folder = './.osm_cache'
         self.rivers = osmnx.geometries_from_bbox(*self.bbox, tags={'waterway': ['river', 'stream', 'tidal channel']})
         if len(self.rivers) == 0:
-            raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMap:\n"
-                            "https://www.openstreetmap.org/edit")
+            raise Exception("No rivers found within the DEM domain. Ensure the target river is on OpenStreetMap\n"
+                            "and contains \"waterway\" and \"name\" tags: https://www.openstreetmap.org/edit")
         # read into geodataframe with same CRS as DEM
         self.rivers = self.rivers.to_crs(epsg=self.epsg_code)
         # crop to DEM extent
@@ -201,11 +204,16 @@ class REMMaker(object):
         for river_name in river_names:
             river_segments = self.rivers[self.rivers.river_name == river_name]
             river_length = river_segments.length.sum()
-            logging.info(f"\t{river_name}: {river_length:.4f}")
+            logging.info(f"\t{river_name}: {river_length:.4f} {self.h_unit}s")
             river_lengths[river_name] = river_length
         longest_river = max(river_lengths, key=river_lengths.get)
         self.river_length = river_lengths[longest_river]
         logging.info(f"\nLongest river in domain: {longest_river}\n")
+        # if river length is shorter than
+        x_min, x_max, y_min, y_max = self.extent
+        if self.river_length < np.sqrt((x_max - x_min) * (y_max - y_min)):
+            raise RuntimeWarning("WARNING: River length is shorter than DEM length. Ensure the target river is on OpenStreetMap\n"
+                                 "and contains \"waterway\" and \"name\" tags: https://www.openstreetmap.org/edit")
         # only keep longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
         # convert linestrings of river to points
@@ -305,8 +313,8 @@ class REMMaker(object):
         if not self.k:
             self.k = self.estimate_k()
         logging.info(f"Using k = {self.k} nearest neighbors.")
-        # coords to interpolate over (don't interpolated where DEM is null or on centerline (where REM elevation = 0))
-        interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
+        # coords to interpolate over (don't interpolate where DEM is null)
+        interp_indices = np.where(~np.isnan(self.dem_array))
         logging.info("Getting coords of points to interpolate.")
         c_interpolate = self.ix2coords(interp_indices)
         # create 2D tree

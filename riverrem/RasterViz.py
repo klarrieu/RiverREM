@@ -3,8 +3,6 @@ import os
 import sys
 import gdal
 import osr
-from PIL import Image
-Image.MAX_IMAGE_PIXELS = None  # to avoid decompression bomb warnings when reading large images
 import subprocess
 import seaborn as sn
 import numpy as np
@@ -44,7 +42,6 @@ Options:
     -out_ext: the extension/file format to use for geodata outputs (tif or img). Default "tif".
     
     -make_png: output a png version (EPSG:3857) of the viz_type in addition to the viz raster in source projection.
-               If this option is used, a thumbnail version of the png will also be produced.
     
     -make_kmz: output a kmz version of the viz_type in addition to the viz raster in source projection.
     
@@ -82,7 +79,6 @@ class RasterViz(object):
     :param out_ext: extension for output georaster files.
     :type out_ext: str, '.tif' or '.img'
     :param make_png: output a png image of visualizations (EPSG:3857) in addition to a raster in source projection.
-                     If this option is used, a thumbnail version of the png will also be produced.
     :type make_png: bool
     :param make_kmz: output a kmz file (e.g. Google Earth) of visualizations in addition to a raster in source
                      projection.
@@ -526,7 +522,6 @@ class RasterViz(object):
             subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         else:
             gdal.Translate(f"{self.dp}{png_name}", f"{self.dp}{tmp_path}", options=f"-ot Byte{scale} -of PNG")
-        self.make_thumbnail(png_name)
         return png_name
 
     def raster_to_kmz(self, ras_path):
@@ -558,16 +553,6 @@ class RasterViz(object):
             # set output range to start at 1, so we don't erroneously set low values to nodata (0 for byte array)
             scale = f" -scale {min_val} {max_val} 1 255"
         return scale
-
-    def make_thumbnail(self, png_name):
-        """Make downsized/thumbnail version of png image."""
-        print("Making .png thumbnail.")
-        png_thumbnail_name = png_name.replace(".png", "_thumbnail.png")
-        max_size = (400, 400)
-        png_thumbnail = Image.open(png_name).copy()
-        png_thumbnail.thumbnail(max_size)
-        png_thumbnail.save(png_thumbnail_name)
-        return png_thumbnail_name
 
     def _clean_up(self):
         """Delete all intermediate files. Called by _png_kmz_checker decorator at end of function calls."""
