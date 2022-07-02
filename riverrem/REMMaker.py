@@ -204,16 +204,16 @@ class REMMaker(object):
         for river_name in river_names:
             river_segments = self.rivers[self.rivers.river_name == river_name]
             river_length = river_segments.length.sum()
-            logging.info(f"\t{river_name}: {river_length:.4f} {self.h_unit}s")
+            logging.info(f"\t{river_name}: {river_length:.4f} {self.h_unit}")
             river_lengths[river_name] = river_length
         longest_river = max(river_lengths, key=river_lengths.get)
         self.river_length = river_lengths[longest_river]
         logging.info(f"\nLongest river in domain: {longest_river}\n")
-        # if river length is shorter than
-        x_min, x_max, y_min, y_max = self.extent
+        # if river length is shorter than geometric mean of DEM dimensions, print warning
+        x_min, y_min, x_max, y_max = self.extent
         if self.river_length < np.sqrt((x_max - x_min) * (y_max - y_min)):
-            raise RuntimeWarning("WARNING: River length is shorter than DEM length. Ensure the target river is on OpenStreetMap\n"
-                                 "and contains \"waterway\" and \"name\" tags: https://www.openstreetmap.org/edit")
+            print("WARNING: River length is shorter than DEM length. Ensure the target river is on OpenStreetMap\n"
+                  "and contains \"waterway\" and \"name\" tags: https://www.openstreetmap.org/edit")
         # only keep longest river to make REM
         self.rivers = self.rivers[self.rivers.river_name == longest_river]
         # convert linestrings of river to points
@@ -313,8 +313,8 @@ class REMMaker(object):
         if not self.k:
             self.k = self.estimate_k()
         logging.info(f"Using k = {self.k} nearest neighbors.")
-        # coords to interpolate over (don't interpolate where DEM is null)
-        interp_indices = np.where(~np.isnan(self.dem_array))
+        # coords to interpolate over (don't interpolate where DEM is null or on centerline where REM = 0)
+        interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
         logging.info("Getting coords of points to interpolate.")
         c_interpolate = self.ix2coords(interp_indices)
         # create 2D tree
@@ -325,7 +325,7 @@ class REMMaker(object):
         logging.info("Chunking query...")
         chunk_size = 1e6
         # iterate over chunks
-        chunk_count = c_interpolate.shape[0] // chunk_size
+        chunk_count = c_interpolate.shape[0] // chunk_size + 1
         interpolated_values = np.array([])
         for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
             logging.info(f"{i / chunk_count * 100:.2f}%")

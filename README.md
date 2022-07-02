@@ -37,7 +37,10 @@ Options for adjusting colormaps, shading, interpolation parameters, and more are
 
 ## Troubleshooting
 
-- No river in DEM extent or inaccurate centerline: Use the [OSM editor](https://www.openstreetmap.org/edit) to create/modify the river centerline(s).
+- No river in DEM extent or inaccurate centerline: Use the [OSM editor](https://www.openstreetmap.org/edit) to 
+  create/modify river centerline(s). To create an REM, a centerline for the target river must exist on OpenStreetMap 
+  listed with a "waterway" tag ("river", "stream", or "tidal channel") and must also have a "name" tag that is common 
+  across all segments of the river in the DEM domain.
 
 ## Issues
 
