@@ -566,18 +566,7 @@ class RasterViz(object):
 
 
 if __name__ == "__main__":
-    # example Python run here
-    """
-    dem = './test/dem.tif'
-    viz = RasterViz(dem=dem, out_dir='/out/dir', out_ext='.tif', make_png=True, make_kmz=True)
-    viz.make_hillshade_color(multidirectional=True, cmap='terrain', z=2)
-    viz.make_hillshade(multidirectional=True)
-    viz.make_color_relief(cmap='gist_earth')
-    viz.make_slope()
-    viz.make_aspect()
-    viz.make_roughness()
-    """
-
+    # CLI call parsing
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
         print_usage()

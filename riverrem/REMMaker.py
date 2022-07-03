@@ -64,6 +64,16 @@ def print_usage():
     print(usage)
     return
 
+def clear_osm_cache():
+    print('Clearing OSM cache.')
+    try:
+        for dir, subdirs, files in os.walk('./.osm_cache'):
+            for f in files:
+                filepath = os.path.join(dir, f)
+                os.remove(filepath)
+    except Exception as e:
+        raise Exception("Could not clear ./.osm_cache.", e)
+    return
 
 class REMMaker(object):
     """
@@ -392,14 +402,17 @@ class REMMaker(object):
             logging.info("No REM exists yet. Creating REM now.")
             self.make_rem()
         logging.info("\nBlending REM with hillshade.")
-        # make hillshade of original DEM
+        # make hillshade of original DEM in cache dir
         dem_viz = RasterViz(self.dem, out_dir=self.cache_dir, out_ext=".tif")
         dem_viz.make_hillshade(multidirectional=True, z=z)
-        # make hillshdae color using hillshade from DEM and color-relief from REM
-        rem_viz = RasterViz(self.rem_ras, out_dir=self.out_dir, out_ext=".tif", make_png=make_png, make_kmz=make_kmz, *args, **kwargs)
-        rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM
+        # make color-relief of REM in cache dir
+        rem_viz = RasterViz(self.rem_ras, out_dir=self.cache_dir, out_ext=".tif", make_png=make_png, make_kmz=make_kmz, *args, **kwargs)
+        rem_viz.make_color_relief(cmap=cmap, log_scale=True, *args, **kwargs)
+        # switch output location from cache to output directory for hillshade-color raster/png
+        rem_viz.out_rasters["hillshade-color"] = os.path.join(self.out_dir, f"{self.dem_name}_hillshade-color.tif")
+        rem_viz.hillshade_ras = dem_viz.hillshade_ras  # use hillshade of original DEM, color-relief of REM
         rem_viz.viz_srs = rem_viz.proj  # make png visualization using source projection
-        viz_ras = rem_viz.make_hillshade_color(cmap=cmap, log_scale=True, blend_percent=blend_percent, *args, **kwargs)
+        viz_ras = rem_viz.make_hillshade_color(blend_percent=blend_percent, *args, **kwargs)
         self.clean_up()
         return viz_ras
 
@@ -415,14 +428,6 @@ class REMMaker(object):
 
 
 if __name__ == "__main__":
-    # example Python run
-    """
-    dem = "./test/dem.tif"
-    rem_maker = REMMaker(dem=dem, out_dir='/out/dir', eps=0.1, workers=4)
-    # rem_maker.make_rem()
-    rem_maker.make_rem_viz(cmap='mako_r')
-    """
-
     # CLI call parsing
     argv = sys.argv
     if (len(argv) < 2) or (("-h" in argv) or ("--help" in argv)):
