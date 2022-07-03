@@ -38,9 +38,7 @@ Options for adjusting colormaps, shading, interpolation parameters, and more are
 ## Troubleshooting
 
 - No river in DEM extent or inaccurate centerline: Use the [OSM editor](https://www.openstreetmap.org/edit) to 
-  create/modify river centerline(s). To create an REM, a centerline for the target river must exist on OpenStreetMap 
-  listed with a "waterway" tag ("river", "stream", or "tidal channel") and must also have a "name" tag that is common 
-  across all segments of the river in the DEM domain.
+  create/modify river centerline(s). See the [documentation](https://klarrieu.github.io/RiverREM/) for more details.
 
 ## Issues
 
@@ -51,7 +49,7 @@ Submitting issues, bugs, or suggested feature improvements are encouraged for th
 This package was made possible and inspired by the following:
 
 - The [beautiful REMs](https://www.dnr.wa.gov/publications/ger_presentations_dmt_2016_coe.pdf) popularized by [Daniel Coe](https://dancoecarto.com/creating-rems-in-qgis-the-idw-method)
-- [DahnJ](https://github.com/DahnJ) for previous implementation of [REMs using xarray](https://github.com/DahnJ/REM-xarray)
+- [DahnJ](https://github.com/DahnJ)'s implementation of [REMs using xarray](https://github.com/DahnJ/REM-xarray)
 - Geoff Boeing's [OSMnx](https://geoffboeing.com/publications/osmnx-complex-street-networks/) Python package leveraging the OSM Overpass API
 - The team at [OpenTopography](https://opentopography.org/) for supporting this effort
 

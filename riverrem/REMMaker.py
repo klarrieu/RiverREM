@@ -65,6 +65,8 @@ def print_usage():
     return
 
 def clear_osm_cache():
+    """Clear the OSM cache folder (./.osm_cache). This is useful if the OSM Editor has been used to update
+    river centerlines."""
     print('Clearing OSM cache.')
     try:
         for dir, subdirs, files in os.walk('./.osm_cache'):
