@@ -1,10 +1,13 @@
-name: OT
 channels:
-  - conda-forge
   - defaults
 dependencies:
   - python=3.6
-  - osmnx
+  - gdal
+  - conda-forge::osmnx
   - dataclasses
-  - sphinx
-prefix: C:\ProgramData\Anaconda3\envs\OT
+  - seaborn
+  - shapely
+  - pandas
+  - geopandas
+  - bottleneck
+  - numexpr
