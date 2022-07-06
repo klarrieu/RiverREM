@@ -12,6 +12,14 @@ Install via conda:
 
 `conda install riverrem`
 
+or clone this repo and create a conda environment from the `environment.yml`:
+
+```bash
+git clone https://github.com/klarrieu/RiverREM.git
+cd RiverREM
+conda create env -n riverrem --file environment.yml
+```
+
 In order to handle dependencies such as GDAL and OSMnx, it is highly recommended to install with `conda` instead of `pip` for ease of use. 
 
 ## Usage
