@@ -59,6 +59,10 @@ This package was made possible and inspired by the following:
 - The [beautiful REMs](https://www.dnr.wa.gov/publications/ger_presentations_dmt_2016_coe.pdf) popularized by [Daniel Coe](https://dancoecarto.com/creating-rems-in-qgis-the-idw-method)
 - [DahnJ](https://github.com/DahnJ)'s implementation of [REMs using xarray](https://github.com/DahnJ/REM-xarray)
 - Geoff Boeing's [OSMnx](https://geoffboeing.com/publications/osmnx-complex-street-networks/) Python package leveraging the OSM Overpass API
-- The team at [OpenTopography](https://opentopography.org/) for supporting this effort
+- The team at [OpenTopography](https://opentopography.org/) for supporting this effort 
+
+[![NSF-1948997](https://img.shields.io/badge/NSF-1948997-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948997) 
+[![NSF-1948994](https://img.shields.io/badge/NSF-1948994-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948994)
+[![NSF-1948857](https://img.shields.io/badge/NSF-1948857-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948857)
 
 ![dirty_devil_REM_hillshade-color](docs/pics/dirty_devil_REM_hillshade-color.png)
