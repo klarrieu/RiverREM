@@ -508,20 +508,21 @@ class RasterViz(object):
             tmp_path = os.path.join(self.cache_dir, f"tmp_3857{self.ext}")
             if self.shell:
                 cmd = f"{self.drun}gdalwarp " \
-                      f"-s_srs {self.proj} -t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
+                      f"-t_srs {self.viz_srs} {self.dp}{ras_path} {self.dp}{tmp_path}"
                 subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
             else:
-                gdal.Warp(f"{self.dp}{tmp_path}", f"{self.dp}{ras_path}", srcSRS=self.proj, dstSRS=self.viz_srs)
+                gdal.Warp(f"{self.dp}{tmp_path}", f"{self.dp}{ras_path}", dstSRS=self.viz_srs)
         else:
             tmp_path = ras_path
         # convert to PNG
         scale = self.get_scaling(tmp_path)
         if self.shell:
-            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -of PNG " \
+            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -a_nodata 0 -of PNG " \
                   f"{self.dp}{tmp_path} {self.dp}{png_name}"
             subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         else:
-            gdal.Translate(f"{self.dp}{png_name}", f"{self.dp}{tmp_path}", options=f"-ot Byte{scale} -of PNG")
+            gdal.Translate(f"{self.dp}{png_name}", f"{self.dp}{tmp_path}",
+                           options=f"-ot Byte{scale} -a_nodata 0 -of PNG")
         return png_name
 
     def raster_to_kmz(self, ras_path):
@@ -530,12 +531,12 @@ class RasterViz(object):
         kmz_name = ras_path.replace(self.ext, ".kmz")
         scale = self.get_scaling(ras_path)
         if self.shell:
-            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -co format=png -of KMLSUPEROVERLAY " \
+            cmd = f"{self.drun}gdal_translate -ot Byte{scale} -a_nodata 0 -co format=png -of KMLSUPEROVERLAY " \
                   f"{self.dp}{ras_path} {self.dp}{kmz_name}"
             subprocess.run(cmd, shell=True, stderr=subprocess.PIPE)
         else:
             gdal.Translate(f"{self.dp}{kmz_name}", f"{self.dp}{ras_path}",
-                           options=f"-ot Byte{scale} -co format=png -of KMLSUPEROVERLAY")
+                           options=f"-ot Byte{scale} -a_nodata 0 -co format=png -of KMLSUPEROVERLAY")
         return kmz_name
 
     @staticmethod
