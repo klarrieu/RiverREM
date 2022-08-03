@@ -58,7 +58,7 @@ Submitting issues, bugs, or suggested feature improvements are highly encouraged
 
 ## References
 
-This package was made possible and inspired by the following:
+This is the OpenTopography fork of https://github.com/klarrieu/RiverREM by Kenneth Larrieu. This package was made possible and inspired by the following:
 
 - The [beautiful REMs](https://www.dnr.wa.gov/publications/ger_presentations_dmt_2016_coe.pdf) popularized by [Daniel Coe](https://dancoecarto.com/creating-rems-in-qgis-the-idw-method)
 - [DahnJ](https://github.com/DahnJ)'s implementation of [REMs using xarray](https://github.com/DahnJ/REM-xarray)
