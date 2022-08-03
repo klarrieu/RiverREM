@@ -5,17 +5,17 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="RiverREM",
-    version="0.0.1",
+    version="1.0.0",
     author="Kenneth Larrieu",
     author_email="kennylarrieu@gmail.com",
     description="Make river relative elevation models (REM) and REM visualizations from an input digital elevation model (DEM).",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/klarrieu/RiverREM",
+    url="https://github.com/OpenTopography/RiverREM",
     packages=setuptools.find_packages(),
     classifiers=(
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: BSD 3-Clause License",
         "Operating System :: OS Independent",
     ),
 )

@@ -1,10 +1,10 @@
 package:
   name: "riverrem"
-  version: "0.0.1"
+  version: "1.0.0"
 
 source:
-  git_rev: v0.0.1
-  git_url: https://github.com/klarrieu/RiverREM
+  git_rev: v1.0.0
+  git_url: https://github.com/OpenTopography/RiverREM
 
 requirements:
   host:
@@ -22,9 +22,9 @@ requirements:
     - dataclasses
 
 about:
-  home: https://github.com/klarrieu/RiverREM
-  license: MIT
-  license_familY: MIT
+  home: https://github.com/OpenTopography/RiverREM
+  license: BSD 3-Clause
+  license_familY: BSD
   license_file: LICENSE
   summary: "Make river relative elevation models (REMs) from an input digital elevation model (DEM)."
 
