@@ -1,6 +1,9 @@
 DEM Visualization Module
 ************************
 
+This module contains a helper class (RasterViz) that is invoked by the REM module to create visualizations.
+It can also be used standalone to create customized visualizations of DEM/REM rasters.
+
 .. automodule:: riverrem.RasterViz
 
 .. autoclass:: riverrem.RasterViz.RasterViz

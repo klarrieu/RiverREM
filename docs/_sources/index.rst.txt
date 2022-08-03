@@ -5,8 +5,8 @@ Welcome to RiverREM's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   vizindex
    remindex
+   vizindex
 
 
 

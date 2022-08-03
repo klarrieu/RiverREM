@@ -19,7 +19,8 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="prev" title="DEM Visualization Module" href="vizindex.html" /> 
+    <link rel="next" title="DEM Visualization Module" href="vizindex.html" />
+    <link rel="prev" title="Welcome to RiverREM’s documentation!" href="index.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -39,8 +40,8 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="vizindex.html">DEM Visualization Module</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">REM Module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vizindex.html">DEM Visualization Module</a></li>
 </ul>
 
         </div>
@@ -100,7 +101,9 @@ river centerlines.</p>
 <li><p><strong>interp_pts</strong> (<em>int</em>) – maximum number of points to use for interpolation of river centerline elevation. Actual number
 of points is limited by number of DEM pixels along centerline, so less points may be used for
 lower resolution DEMs.</p></li>
-<li><p><strong>k</strong> (<em>int</em>) – number of nearest neighbors to use for IDW interpolation. If None, an appropriate value is estimated.</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of nearest neighbors to use for IDW interpolation. If None, an appropriate value is estimated.
+The estimation routine uses k between 5-100 points (0.5-10% of the river length) depending on the
+sinuosity of the river of interest. Greater values of k are used for more sinuous rivers.</p></li>
 <li><p><strong>eps</strong> (<em>float</em>) – fractional error tolerance for finding nearest neighbors in KD tree query. Higher values allow faster
 interpolation at the expense of accuracy.</p></li>
 <li><p><strong>workers</strong> (<em>int</em>) – number of CPU threads to use for interpolation. -1 uses all threads.</p></li>
@@ -131,20 +134,19 @@ product.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>cmap</strong> (<em>str</em>) – name of matplotlib/seaborn named colormap to use for REM coloring. Note the applied colormap is
-logarithmically scaled in order to emphasize elevations differences close to the river centerline.</p></li>
+<li><p><strong>cmap</strong> (<em>str</em>) – name of matplotlib/seaborn named colormap to use for REM coloring
+(see <a class="reference external" href="https://matplotlib.org/stable/gallery/color/colormap_reference.html">https://matplotlib.org/stable/gallery/color/colormap_reference.html</a>). Note the applied
+colormap is logarithmically scaled in order to emphasize elevations differences close to the river
+centerline.</p></li>
 <li><p><strong>z</strong> (<em>float &gt;1</em>) – z factor for exaggerating vertical scale differences of hillshade.</p></li>
 <li><p><strong>blend_percent</strong> (<em>float</em><em> [</em><em>0-100</em><em>]</em>) – Percent weight of hillshdae in blended image, color-relief takes opposite weight.</p></li>
 </ul>
 </dd>
-</dl>
-<p>This method also accepts any arguments for the RasterViz module’s make_hillshade_color method.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p>path to output raster</p>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>path to output raster</p>
 </dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p>str</p>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>str</p>
 </dd>
 </dl>
 </dd></dl>
@@ -157,7 +159,8 @@ logarithmically scaled in order to emphasize elevations differences close to the
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="vizindex.html" class="btn btn-neutral float-left" title="DEM Visualization Module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to RiverREM’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="vizindex.html" class="btn btn-neutral float-right" title="DEM Visualization Module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

@@ -100,6 +100,8 @@ class REMMaker(object):
                        lower resolution DEMs.
     :type interp_pts: int
     :param k: number of nearest neighbors to use for IDW interpolation. If None, an appropriate value is estimated.
+              The estimation routine uses k between 5-100 points (0.5-10% of the river length) depending on the
+              sinuosity of the river of interest. Greater values of k are used for more sinuous rivers.
     :type k: int
     :param eps: fractional error tolerance for finding nearest neighbors in KD tree query. Higher values allow faster
                 interpolation at the expense of accuracy.
@@ -422,15 +424,15 @@ class REMMaker(object):
         """Create REM visualization by blending the REM color-relief with a DEM hillshade to make a pretty finished
         product.
 
-        :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring. Note the applied colormap is
-                     logarithmically scaled in order to emphasize elevations differences close to the river centerline.
+        :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring
+                     (see https://matplotlib.org/stable/gallery/color/colormap_reference.html). Note the applied
+                     colormap is logarithmically scaled in order to emphasize elevations differences close to the river
+                     centerline.
         :type cmap: str
         :param z: z factor for exaggerating vertical scale differences of hillshade.
         :type z: float >1
         :param blend_percent: Percent weight of hillshdae in blended image, color-relief takes opposite weight.
         :type blend_percent: float [0-100]
-
-        This method also accepts any arguments for the RasterViz module's make_hillshade_color method.
 
         :returns: path to output raster
         :rtype: str
