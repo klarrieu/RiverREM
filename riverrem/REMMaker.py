@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 import os
 import sys
+sys.path.append("../")
 import numpy as np
 import gdal
 import osr
 import ogr
 from shapely.geometry import box  # for cropping centerlines to extent of DEM
-from geopandas import clip
+from geopandas import clip, read_file
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
 from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
 from itertools import combinations
@@ -26,13 +27,20 @@ This script can be called from Python using its class/methods or as a CLI utilit
 
 CLI Usage:
 
-"python MakeREM.py [-cmap (default=mako_r)] [-interp_pts (default=1000)] [-k (default=auto)] [-eps (default=0.1)] 
-                   [-workers (default=4)] /path/to/dem"
+"python REMMaker.py [-centerline_shp (default=None)] [-cmap (default=mako_r)] [-z (default=2)] 
+                    [-blend_percent (default=25)] [-interp_pts (default=1000)] [-k (default=auto)] 
+                    [-eps (default=0.1)] [-workers (default=4)] /path/to/dem"
 
 Options:
     
+    -centerline_shp: Path to user-provided river centerline shapefile. If used, overrides OpenStreetMap centerline.
+    
     -cmap: Name of a matplotlib or seaborn colormap. Default "mako_r".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
+           
+    - z: Vertical exaggeration scale factor for visualization. Default 2.
+    
+    - blend_percent: Percent of hillshade to blend in with color-relief REM. REM takes opposite weight. Default 25.
     
     -interp_pts: Max number of points to use for interpolation. Actual number of points is limited by number of
                  DEM pixels along centerline, so less points than this will be used for lower resolution DEMs. 
@@ -83,6 +91,8 @@ class REMMaker(object):
 
     :param dem: path to input DEM raster.
     :type dem: str
+    :param centerline_shp: (optional) river centerline shapefile to use. If given, overrides OpenStreetMap centerline.
+    :type centerline_shp: str
     :param out_dir: output file directory. Defaults to current working directory.
     :type out_dir: str
     :param interp_pts: maximum number of points to use for interpolation of river centerline elevation. Actual number
@@ -100,9 +110,11 @@ class REMMaker(object):
     :type cache_dir: str
 
     """
-    def __init__(self, dem, out_dir='./', interp_pts=1000, k=None, eps=0.1, workers=4, cache_dir='./.cache'):
+    def __init__(self, dem, centerline_shp=None, out_dir='./',
+                 interp_pts=1000, k=None, eps=0.1, workers=4, cache_dir='./.cache'):
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
+        self.centerline_shp = centerline_shp
         self.out_dir = out_dir
         self.cache_dir = cache_dir
         self.get_spatial_metadata()
@@ -122,6 +134,17 @@ class REMMaker(object):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
         return
+
+    @property
+    def centerline_shp(self):
+        return self._centerline_shp
+
+    @centerline_shp.setter
+    def centerline_shp(self, centerline_shp):
+        if centerline_shp is not None:
+            if not os.path.exists(centerline_shp):
+                raise FileNotFoundError(f"Cannot find input river centerline shapefile: {centerline_shp}")
+        self._centerline_shp = centerline_shp
 
     @property
     def out_dir(self):
@@ -275,6 +298,15 @@ class REMMaker(object):
         ds = layer = feat = geom = None
         return
 
+    def read_centerline_input(self):
+        """Read user provided centerline shapefile instead of using OSM."""
+        logging.info('Using input centerline shapefile.')
+        self.rivers = read_file(self.centerline_shp).to_crs(epsg=self.epsg_code)
+        self.rivers = clip(self.rivers, box(*self.extent))
+        self.river_length = self.rivers.length.sum()
+        self.lines2pts()
+        self.make_river_shp()
+
     def get_river_elev(self):
         """Get DEM values along river centerline"""
         logging.info("Getting river elevation at DEM pixels.")
@@ -376,7 +408,10 @@ class REMMaker(object):
         :rtype: str
 
         """
-        self.get_river_centerline()
+        if self.centerline_shp is None:
+            self.get_river_centerline()
+        else:
+            self.read_centerline_input()
         self.get_river_elev()
         self.interp_river_elev()
         self.detrend_dem()
@@ -436,14 +471,20 @@ if __name__ == "__main__":
         print_usage()
     else:
         dem = argv[-1]
-        kwargs = {}
+        maker_kwargs = {}
+        viz_kwargs = {}
+        type_dict = {'centerline_shp': str, 'interp_pts': int, 'k': int, 'eps': float, 'workers': int,
+                     'cmap': str, 'z': float, 'blend_percent': float}
         for i, arg in enumerate(argv):
-            if arg in ['-cmap', '-interp_pts', '-k', '-eps', '-workers']:
+            if arg in ['-centerline_shp', '-interp_pts', '-k', '-eps', '-workers']:
                 k = arg.replace('-', '')
-                kwargs[k] = argv[i+1]
-        rem_maker = REMMaker(dem=dem, **kwargs)
+                maker_kwargs[k] = type_dict[k](argv[i+1])
+            if arg in ['-cmap', '-z', '-blend_percent']:
+                k = arg.replace('-', '')
+                viz_kwargs[k] = type_dict[k](argv[i+1])
+        rem_maker = REMMaker(dem=dem, **maker_kwargs)
         rem_maker.make_rem()
-        rem_maker.make_rem_viz(**kwargs)
+        rem_maker.make_rem_viz(**viz_kwargs)
 
     end = time.time()
     logging.info(f'\nDone.\nRan in {end - start:.0f} s.')

@@ -1,10 +1,10 @@
 REM Module
 **********
 
-This module can be used to automatically produce aesthetically pleasing visualizations of river relative elevation
+This module can be used to automatically produce visualizations of river relative elevation
 models (REMs) from an input DEM.
 
-River centerlines used to create REMs are automatically retrieved from the OpenStreetMap (OSM) API. If a desired river segment is not listed on OSM, a new river centerline can be created/edited at: https://www.openstreetmap.org/edit (clear the OSM cache folder after using the OSM editor to get the updated centerline).
+River centerlines used to create REMs are automatically retrieved from the OpenStreetMap (OSM) API. If a desired river segment is not listed on OSM, a new river centerline can be created/edited at https://www.openstreetmap.org/edit (clear the OSM cache folder after using the OSM editor to get the updated centerline). Alternatively, if OSM is up to date but the input DEM has older river topography, a user-provided centerline shapefile can be input, overriding the OSM centerline.
 
 Points sampled along the river centerline(s) are output as a shapefile along with each output REM raster. These points can be viewed to help ensure that the applied centerline is accurate.
 

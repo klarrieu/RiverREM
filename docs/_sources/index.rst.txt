@@ -1,4 +1,4 @@
-Welcome to RiveREM's documentation!
+Welcome to RiverREM's documentation!
 ====================================
 
 .. toctree::

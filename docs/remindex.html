@@ -69,20 +69,17 @@
              
   <section id="rem-module">
 <h1>REM Module<a class="headerlink" href="#rem-module" title="Permalink to this heading"></a></h1>
-<p>This module can be used to automatically produce aesthetically pleasing visualizations of river relative elevation
+<p>This module can be used to automatically produce visualizations of river relative elevation
 models (REMs) from an input DEM.</p>
-<p>River centerlines used to create REMs are automatically retrieved from the OpenStreetMap (OSM) API. To create an REM, a centerline for the target river must exist on OpenStreetMap listed with a "waterway" tag ("river", "stream", or "tidal channel") and must also have a "name" tag that is common across all segments of the river in the DEM domain.</p>
-<p>If a desired river segment is not listed on OSM, or an exsting segment is inaccurate, river centerlines can be created/edited at: <a class="reference external" href="https://www.openstreetmap.org/edit">https://www.openstreetmap.org/edit</a> (clear the OSM cache folder after using the OSM editor to get the updated centerline).</p>
+<p>River centerlines used to create REMs are automatically retrieved from the OpenStreetMap (OSM) API. If a desired river segment is not listed on OSM, a new river centerline can be created/edited at <a class="reference external" href="https://www.openstreetmap.org/edit">https://www.openstreetmap.org/edit</a> (clear the OSM cache folder after using the OSM editor to get the updated centerline). Alternatively, if OSM is up to date but the input DEM has older river topography, a user-provided centerline shapefile can be input, overriding the OSM centerline.</p>
 <p>Points sampled along the river centerline(s) are output as a shapefile along with each output REM raster. These points can be viewed to help ensure that the applied centerline is accurate.</p>
 <p>For very large/high resolution DEMs, interpolation can take a long time. While this module is designed to work well using the default settings on a variety of datasets, interpolation can be sped up by changing the following parameters from default values:</p>
-<blockquote>
-<div><ul class="simple">
+<ul class="simple">
 <li><p>decreasing interp_pts</p></li>
 <li><p>increasing k</p></li>
 <li><p>increasing eps</p></li>
 <li><p>increasing workers (if more CPU threads are available)</p></li>
 </ul>
-</div></blockquote>
 <span class="target" id="module-riverrem.REMMaker"></span><dl class="py function">
 <dt class="sig sig-object py" id="riverrem.REMMaker.clear_osm_cache">
 <span class="sig-prename descclassname"><span class="pre">riverrem.REMMaker.</span></span><span class="sig-name descname"><span class="pre">clear_osm_cache</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.clear_osm_cache" title="Permalink to this definition"></a></dt>
@@ -92,12 +89,13 @@ river centerlines.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="riverrem.REMMaker.REMMaker">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">riverrem.REMMaker.</span></span><span class="sig-name descname"><span class="pre">REMMaker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dem</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interp_pts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./.cache'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.REMMaker" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">riverrem.REMMaker.</span></span><span class="sig-name descname"><span class="pre">REMMaker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dem</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centerline_shp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interp_pts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cache_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'./.cache'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#riverrem.REMMaker.REMMaker" title="Permalink to this definition"></a></dt>
 <dd><p>Handler to automatically make a river REM from an input DEM.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>dem</strong> (<em>str</em>) – path to input DEM raster.</p></li>
+<li><p><strong>centerline_shp</strong> (<em>str</em>) – (optional) river centerline shapefile to use. If given, overrides OpenStreetMap centerline.</p></li>
 <li><p><strong>out_dir</strong> (<em>str</em>) – output file directory. Defaults to current working directory.</p></li>
 <li><p><strong>interp_pts</strong> (<em>int</em>) – maximum number of points to use for interpolation of river centerline elevation. Actual number
 of points is limited by number of DEM pixels along centerline, so less points may be used for
