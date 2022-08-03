@@ -4,7 +4,7 @@
 
 # RiverREM
 
-RiverREM is a Python package for automatically generating river relative elevation model (REM) visualizations from nothing but an input digital elevation model (DEM). The package uses the OpenStreetMap API to retrieve river centerline geometries over the DEM extent. Interpolation of river elevations is automatically handled using a sampling scheme based on raster resolution and river sinuosity to create striking high-resolution visualizations without interpolation artefacts straight out of the box and without additional manual steps. The package also contains a helper class for creating DEM raster visualizations. See the [documentation](https://klarrieu.github.io/RiverREM/) pages for more details.
+RiverREM is a Python package for automatically generating river relative elevation model (REM) visualizations from nothing but an input digital elevation model (DEM). The package uses the OpenStreetMap API to retrieve river centerline geometries over the DEM extent. Interpolation of river elevations is automatically handled using a sampling scheme based on raster resolution and river sinuosity to create striking high-resolution visualizations without interpolation artefacts straight out of the box and without additional manual steps. The package also contains a helper class for creating DEM raster visualizations. See the [documentation](https://opentopography.github.io/RiverREM/) pages for more details.
 
 ![yukon_crop](docs/pics/yukon_crop.png)
 
@@ -19,7 +19,7 @@ Install via conda:
 or clone this repo and create a conda environment from the `environment.yml`:
 
 ```bash
-git clone https://github.com/klarrieu/RiverREM.git
+git clone https://github.com/opentopography/RiverREM.git
 cd RiverREM
 conda env create -n riverrem --file environment.yml
 ```
@@ -45,7 +45,7 @@ In order to handle dependencies such as GDAL and OSMnx, it is highly recommended
    rem_maker.make_rem_viz(cmap='mako_r')
    ```
 
-Options for adjusting colormaps, shading, interpolation parameters, and more are detailed in the [documentation](https://klarrieu.github.io/RiverREM/).
+Options for adjusting colormaps, shading, interpolation parameters, and more are detailed in the [documentation](https://opentopography.github.io/RiverREM/).
 
 ## Troubleshooting
 
