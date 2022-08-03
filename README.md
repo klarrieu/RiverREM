@@ -50,7 +50,7 @@ Options for adjusting colormaps, shading, interpolation parameters, and more are
 ## Troubleshooting
 
 - No river in DEM extent or inaccurate centerline: Use the [OSM editor](https://www.openstreetmap.org/edit) to 
-  create/modify river centerline(s). Alternatively, a user-provided centerline can be input to override the OSM centerline. See the [documentation](https://klarrieu.github.io/RiverREM/) for more details.
+  create/modify river centerline(s). Alternatively, a user-provided centerline can be input to override the OSM centerline. See the [documentation](https://opentopography.github.io/RiverREM) for more details.
 
 ## Issues
 
