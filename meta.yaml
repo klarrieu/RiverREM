@@ -23,7 +23,7 @@ requirements:
 
 about:
   home: https://github.com/OpenTopography/RiverREM
-  license: GPL-3.0
+  license: GPL-3.0-only
   license_familY: GPL
   license_file: LICENSE
   summary: "Make river relative elevation models (REMs) from an input digital elevation model (DEM)."
