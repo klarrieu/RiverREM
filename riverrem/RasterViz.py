@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import os
 import sys
-import gdal
-import osr
+from osgeo import gdal
+from osgeo import osr
 import subprocess
 import seaborn as sn
 import numpy as np

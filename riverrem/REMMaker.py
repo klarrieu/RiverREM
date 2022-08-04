@@ -3,9 +3,9 @@ import os
 import sys
 sys.path.append("../")
 import numpy as np
-import gdal
-import osr
-import ogr
+from osgeo import gdal
+from osgeo import osr
+from osgeo import ogr
 from shapely.geometry import box  # for cropping centerlines to extent of DEM
 from geopandas import clip, read_file
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
@@ -27,7 +27,7 @@ This script can be called from Python using its class/methods or as a CLI utilit
 
 CLI Usage:
 
-"python REMMaker.py [-centerline_shp (default=None)] [-cmap (default=mako_r)] [-z (default=2)] 
+"python REMMaker.py [-centerline_shp (default=None)] [-cmap (default=mako_r)] [-z (default=4)] 
                     [-blend_percent (default=25)] [-interp_pts (default=1000)] [-k (default=auto)] 
                     [-eps (default=0.1)] [-workers (default=4)] /path/to/dem"
 
@@ -38,7 +38,7 @@ Options:
     -cmap: Name of a matplotlib or seaborn colormap. Default "mako_r".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
            
-    - z: Vertical exaggeration scale factor for visualization. Default 2.
+    - z: Vertical exaggeration scale factor for visualization. Default 4.
     
     - blend_percent: Percent of hillshade to blend in with color-relief REM. REM takes opposite weight. Default 25.
     
@@ -420,7 +420,7 @@ class REMMaker(object):
         self.clean_up()
         return self.rem_ras
 
-    def make_rem_viz(self, cmap='mako_r', z=2, blend_percent=25, make_png=True, make_kmz=False, *args, **kwargs):
+    def make_rem_viz(self, cmap='mako_r', z=4, blend_percent=25, make_png=True, make_kmz=False, *args, **kwargs):
         """Create REM visualization by blending the REM color-relief with a DEM hillshade to make a pretty finished
         product.
 
