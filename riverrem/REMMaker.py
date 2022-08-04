@@ -3,9 +3,9 @@ import os
 import sys
 sys.path.append("../")
 import numpy as np
-import gdal
-import osr
-import ogr
+from osgeo import gdal
+from osgeo import osr
+from osgeo import ogr
 from shapely.geometry import box  # for cropping centerlines to extent of DEM
 from geopandas import clip, read_file
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
