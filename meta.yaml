@@ -11,15 +11,21 @@ requirements:
     - python
     - setuptools
   build:
-    - python
+    - python >=3.6
   run:
-    - python
+    - python >=3.6
     - gdal
     - scipy
     - osmnx
+    - dataclasses
+    - seaborn
     - shapely
+    - pandas
+    - bottleneck
+    - numexpr
     - geopandas
     - dataclasses
+    - seaborn
 
 about:
   home: https://github.com/OpenTopography/RiverREM
