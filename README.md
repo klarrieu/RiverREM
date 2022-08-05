@@ -6,7 +6,7 @@
 
 RiverREM is a Python package for automatically generating river relative elevation model (REM) visualizations from nothing but an input digital elevation model (DEM). The package uses the OpenStreetMap API to retrieve river centerline geometries over the DEM extent. Interpolation of river elevations is automatically handled using a sampling scheme based on raster resolution and river sinuosity to create striking high-resolution visualizations without interpolation artefacts straight out of the box and without additional manual steps. The package also contains a helper class for creating DEM raster visualizations. See the [documentation](https://opentopography.github.io/RiverREM/) pages for more details.
 
-![yukon_crop](docs/pics/yukon_crop.png)
+![neches_REM](docs/pics/neches_REM_view.png)
 
 
 
@@ -67,4 +67,4 @@ This is the OpenTopography fork of https://github.com/klarrieu/RiverREM by Kenne
 - The team at [OpenTopography](https://opentopography.org/) for supporting this effort under the following U.S. National Science Foundation award numbers: 1948997, 1948994, 1948857.
 
 
-![dirty_devil_REM_hillshade-color](docs/pics/dirty_devil_REM_hillshade-color.png)
+![yukon_flats_REM](docs/pics/yukon_crop.png)
