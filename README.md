@@ -47,6 +47,8 @@ In order to handle dependencies such as GDAL and OSMnx, it is highly recommended
 
 Options for adjusting colormaps, shading, interpolation parameters, and more are detailed in the [documentation](https://opentopography.github.io/RiverREM/).
 
+![yukon_flats_REM](docs/pics/yukon_crop.png)
+
 ## Troubleshooting
 
 - No river in DEM extent or inaccurate centerline: Use the [OSM editor](https://www.openstreetmap.org/edit) to 
@@ -67,4 +69,4 @@ This is the OpenTopography fork of https://github.com/klarrieu/RiverREM by Kenne
 - The team at [OpenTopography](https://opentopography.org/) for supporting this effort under the following U.S. National Science Foundation award numbers: 1948997, 1948994, 1948857.
 
 
-![yukon_flats_REM](docs/pics/yukon_crop.png)
+![birch_creek_REM](docs/pics/birch_crop.png)
