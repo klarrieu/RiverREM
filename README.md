@@ -14,7 +14,9 @@ For more information on REMs and this project see [this OpenTopography blog post
 
 Install via conda:
 
-`conda install riverrem`
+```bash
+conda install riverrem
+```
 
 or clone this repo and create a conda environment from the `environment.yml`:
 
