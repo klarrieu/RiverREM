@@ -1,10 +1,12 @@
-[![NSF-1948997](https://img.shields.io/badge/NSF-1948997-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948997)
-[![NSF-1948994](https://img.shields.io/badge/NSF-1948994-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948994)
-[![NSF-1948857](https://img.shields.io/badge/NSF-1948857-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948857)
+[![NSF-1948997](https://img.shields.io/badge/NSF-1948997-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948997) [![NSF-1948994](https://img.shields.io/badge/NSF-1948994-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948994) [![NSF-1948857](https://img.shields.io/badge/NSF-1948857-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948857)
+
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge)[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/downloads.svg)](https://anaconda.org/conda-forge/riverrem)
 
 # RiverREM
 
 RiverREM is a Python package for automatically generating river relative elevation model (REM) visualizations from nothing but an input digital elevation model (DEM). The package uses the OpenStreetMap API to retrieve river centerline geometries over the DEM extent. Interpolation of river elevations is automatically handled using a sampling scheme based on raster resolution and river sinuosity to create striking high-resolution visualizations without interpolation artefacts straight out of the box and without additional manual steps. The package also contains a helper class for creating DEM raster visualizations. See the [documentation](https://opentopography.github.io/RiverREM/) pages for more details.
+
+For more information on REMs and this project see [this OpenTopography blog post](https://opentopography.org/blog/new-package-automates-river-relative-elevation-model-rem-generation).
 
 ![birch_creek_REM](docs/pics/birch_crop.png)
 
