@@ -1,6 +1,6 @@
 [![NSF-1948997](https://img.shields.io/badge/NSF-1948997-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948997) [![NSF-1948994](https://img.shields.io/badge/NSF-1948994-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948994) [![NSF-1948857](https://img.shields.io/badge/NSF-1948857-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948857)
 
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge) [![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/downloads.svg)](https://anaconda.org/conda-forge/riverrem)
+[![Conda](https://img.shields.io/conda/v/conda-forge/riverrem?color=success)](https://anaconda.org/conda-forge/riverrem) [![Conda](https://img.shields.io/conda/dn/conda-forge/riverrem?color=success)](https://anaconda.org/conda-forge/riverrem)
 
 # RiverREM
 
@@ -14,7 +14,9 @@ For more information on REMs and this project see [this OpenTopography blog post
 
 Install via conda:
 
-`conda install riverrem`
+```bash
+conda install riverrem
+```
 
 or clone this repo and create a conda environment from the `environment.yml`:
 
