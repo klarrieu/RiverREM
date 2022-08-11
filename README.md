@@ -1,6 +1,6 @@
 [![NSF-1948997](https://img.shields.io/badge/NSF-1948997-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948997) [![NSF-1948994](https://img.shields.io/badge/NSF-1948994-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948994) [![NSF-1948857](https://img.shields.io/badge/NSF-1948857-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1948857)
 
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge)[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/downloads.svg)](https://anaconda.org/conda-forge/riverrem)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/installer/conda.svg)](https://conda.anaconda.org/conda-forge) [![Anaconda-Server Badge](https://anaconda.org/conda-forge/riverrem/badges/downloads.svg)](https://anaconda.org/conda-forge/riverrem)
 
 # RiverREM
 
