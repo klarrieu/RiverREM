@@ -375,7 +375,10 @@ class REMMaker(object):
         interpolated_values = np.array([])
         for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
             logging.info(f"{i / chunk_count * 100:.2f}%")
-            distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
+            try:  # handle deprecated n_jobs kwarg for older versions of scipy
+                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
+            except TypeError:
+                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
             # interpolate (IDW with power = 1)
             weights = 1 / distances  # weight river elevations by 1 / distance
             weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
