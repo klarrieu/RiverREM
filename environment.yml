@@ -2,11 +2,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.6
-  - gdal=3.1.4
+  - python>=3.6
+  - gdal>=3.1.4
   - conda-forge::osmnx
   - dataclasses
   - seaborn
+  - scipy>=1.6.0
   - shapely
   - pandas
   - geopandas
