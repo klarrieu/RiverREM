@@ -9,7 +9,7 @@ from osgeo import ogr
 from shapely.geometry import box  # for cropping centerlines to extent of DEM
 from geopandas import clip, read_file
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
-from scipy.spatial import cKDTree as KDTree  # for finding nearest neighbors/interpolating
+from scipy.spatial import KDTree as KDTree  # for finding nearest neighbors/interpolating
 from itertools import combinations
 import time
 from riverrem.RasterViz import RasterViz
@@ -375,10 +375,7 @@ class REMMaker(object):
         interpolated_values = np.array([])
         for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
             logging.info(f"{i / chunk_count * 100:.2f}%")
-            try:  # handle deprecated n_jobs kwarg for older versions of scipy
-                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
-            except TypeError:
-                distances, indices = tree.query(chunk, k=self.k, eps=self.eps, n_jobs=self.workers)
+            distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
             # interpolate (IDW with power = 1)
             weights = 1 / distances  # weight river elevations by 1 / distance
             weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
