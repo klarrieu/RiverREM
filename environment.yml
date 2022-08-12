@@ -7,7 +7,6 @@ dependencies:
   - conda-forge::osmnx
   - dataclasses
   - seaborn
-  - scipy>=1.6.0
   - shapely
   - pandas
   - geopandas
