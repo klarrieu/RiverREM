@@ -1,9 +1,9 @@
 package:
   name: "riverrem"
-  version: "1.0.0"
+  version: "1.0.4"
 
 source:
-  git_rev: v1.0.0
+  git_rev: v1.0.4
   git_url: https://github.com/OpenTopography/RiverREM
 
 requirements:
@@ -13,19 +13,18 @@ requirements:
   build:
     - python >=3.6
   run:
-    - python >=3.6
-    - gdal
-    - scipy
-    - osmnx
+    - python>=3.6
+    - gdal>=3.1.4
+    - conda-forge::osmnx
     - dataclasses
     - seaborn
+    - scipy>=1.6.0
     - shapely
     - pandas
+    - requests
+    - geopandas
     - bottleneck
     - numexpr
-    - geopandas
-    - dataclasses
-    - seaborn
 
 about:
   home: https://github.com/OpenTopography/RiverREM

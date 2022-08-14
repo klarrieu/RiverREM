@@ -9,6 +9,7 @@ from osgeo import ogr
 from shapely.geometry import box  # for cropping centerlines to extent of DEM
 from geopandas import clip, read_file
 import osmnx  # for querying OpenStreetMaps data to get river centerlines
+import requests
 from scipy.spatial import KDTree as KDTree  # for finding nearest neighbors/interpolating
 from itertools import combinations
 import time
@@ -130,9 +131,19 @@ class REMMaker(object):
     def dem(self):
         return self._dem
 
+    @staticmethod
+    def valid_input(dem):
+        valid_path = os.path.exists(dem)
+        valid_url = False
+        try:
+            valid_url = requests.head(dem).status_code < 400
+        except:
+            pass
+        return valid_path or valid_url
+
     @dem.setter
     def dem(self, dem):
-        if not os.path.exists(dem):
+        if not self.valid_input(dem):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
         return
@@ -144,7 +155,7 @@ class REMMaker(object):
     @centerline_shp.setter
     def centerline_shp(self, centerline_shp):
         if centerline_shp is not None:
-            if not os.path.exists(centerline_shp):
+            if not self.valid_input(centerline_shp):
                 raise FileNotFoundError(f"Cannot find input river centerline shapefile: {centerline_shp}")
         self._centerline_shp = centerline_shp
 
@@ -234,6 +245,9 @@ class REMMaker(object):
         self.rivers['river_name'] = names
         # get unique names
         river_names = set(names)
+        if len(river_names) == 0:
+            raise Exception("Found river, but it does not have a listed name. Ensure the target river segment(s) "
+                            "have a \"name\" tag: \n\thttps://www.openstreetmap.org/edit")
         logging.info(f"Found river(s): {', '.join(river_names)}")
         # find river with greatest length (sum of all segments with same name)
         logging.info("\nRiver lengths:")

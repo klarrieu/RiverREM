@@ -10,6 +10,7 @@ dependencies:
   - scipy>=1.6.0
   - shapely
   - pandas
+  - requests
   - geopandas
   - bottleneck
   - numexpr
