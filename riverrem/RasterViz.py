@@ -3,6 +3,7 @@ import os
 import sys
 from osgeo import gdal
 from osgeo import osr
+import requests
 import subprocess
 import seaborn as sn
 import numpy as np
@@ -153,10 +154,20 @@ class RasterViz(object):
     def dem(self):
         return self._dem
 
+    @staticmethod
+    def valid_input(dem):
+        valid_path = os.path.exists(dem)
+        valid_url = False
+        try:
+            valid_url = requests.head(dem).status_code < 400
+        except:
+            pass
+        return valid_path or valid_url
+
     @dem.setter
     def dem(self, dem):
         # make sure the given DEM exists
-        if not os.path.exists(dem):
+        if not self.valid_input(dem):
             raise FileNotFoundError(f"Cannot find input DEM: {dem}")
         self._dem = dem
         # if given DEM is in ASCII, convert to GeoTIFF
