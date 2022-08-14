@@ -1,6 +1,6 @@
 from riverrem.REMMaker import REMMaker
 
-test_dem = './smith_SRTM.tif'
+test_dem = './tests/smith_SRTM.tif'
 
 if __name__ == "__main__":
     rem_maker = REMMaker(dem=test_dem)
