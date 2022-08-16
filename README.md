@@ -34,6 +34,7 @@ In order to handle dependencies such as GDAL and OSMnx, it is highly recommended
 
    - [OpenTopography](https://opentopography.org/)
    - [USGS](https://apps.nationalmap.gov/downloader/)
+   - [Comprehensive list of DEM sources](https://github.com/DahnJ/Awesome-DEM)
 
 2. Create an REM visualization with default arguments:
 
@@ -58,7 +59,7 @@ Options for adjusting colormaps, shading, interpolation parameters, and more are
 
 ## Issues
 
-Submitting issues, bugs, or suggested feature improvements are highly encouraged for this repository.
+Submitting [issues](https://github.com/OpenTopography/RiverREM/issues), bugs, or suggested feature improvements are highly encouraged for this repository.
 
 ## References
 
