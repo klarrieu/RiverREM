@@ -4,11 +4,11 @@ channels:
 dependencies:
   - python>=3.6
   - gdal>=3.1.4, <3.9
-  - conda-forge::osmnx<2.0
+  - conda-forge::osmnx<2.0, >=1.3
   - dataclasses
   - seaborn
   - scipy>=1.6.0
-  - shapely
+  - shapely>=2.0
   - pandas
   - requests
   - geopandas
