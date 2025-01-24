@@ -12,21 +12,45 @@ For more information on REMs and this project see [this OpenTopography blog post
 
 ## Installation
 
-Install via conda:
+### Install method 1 (recommended): New environment with conda/mamba
+
+Make a new Python environment with RiverREM installed:
+
+```bash
+conda create -n rem_env riverrem
+```
+
+The above command creates a new Python environment named `rem_env` with the `riverrem` package installed.
+
+> [!NOTE] 
+> [`mamba`](https://github.com/conda-forge/miniforge/releases/latest) is recommended over `conda` or `pip` as it is able to solve environment dependencies quickly and robustly. If you are using `mamba`, replace `conda` with `mamba` in the above command.
+
+The environment can then be activated:
+
+```bash
+conda activate rem_env
+```
+
+Alternatively, the environment can be linked to an IDE like PyCharm.
+
+
+### Install method 2: Existing environment
+
+Install via conda/mamba:
 
 ```bash
 conda install -c conda-forge riverrem
 ```
 
-or clone this repo and create a conda environment from the `environment.yml`:
+### Install method 3: Repository clone
+
+Clone this repo and create a conda environment from the `environment.yml`:
 
 ```bash
 git clone https://github.com/opentopography/RiverREM.git
 cd RiverREM
 conda env create -n riverrem --file environment.yml
 ```
-
-In order to handle dependencies such as GDAL and OSMnx, it is highly recommended to install with `conda` instead of `pip` for ease of use. 
 
 ## Usage
 
