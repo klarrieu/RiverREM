@@ -49,7 +49,7 @@ Clone this repo and create a conda environment from the `environment.yml`:
 ```bash
 git clone https://github.com/opentopography/RiverREM.git
 cd RiverREM
-conda env create -n riverrem --file environment.yml
+conda env create -n rem_env --file environment.yml
 ```
 
 ## Usage
