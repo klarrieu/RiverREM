@@ -14,7 +14,7 @@ requirements:
     - python >=3.6
   run:
     - python>=3.6
-    - gdal>=3.1.4
+    - gdal>=3.1.4, <3.9
     - conda-forge::osmnx<2.0
     - dataclasses
     - seaborn
