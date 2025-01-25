@@ -16,6 +16,7 @@ import time
 from riverrem.RasterViz import RasterViz
 import logging
 
+
 level = logging.INFO
 fmt = '[%(levelname)s] %(asctime)s - %(message)s'
 logging.basicConfig(level=level, format=fmt)
@@ -114,7 +115,7 @@ class REMMaker(object):
 
     """
     def __init__(self, dem, centerline_shp=None, out_dir='./',
-                 interp_pts=1000, k=None, eps=0.1, workers=4, cache_dir='./.cache'):
+                 interp_pts=1000, k=None, eps=0.1, workers=os.cpu_count()//2, cache_dir='./.cache'):
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
         self.centerline_shp = centerline_shp
@@ -333,9 +334,9 @@ class REMMaker(object):
         gdal.Rasterize(self.centerline_ras, self.river_shp, options=f"-a id {extent} {res}")
         # raster to numpy array same shape as DEM
         r = gdal.Open(self.centerline_ras, gdal.GA_ReadOnly)
-        self.centerline_array = r.GetRasterBand(1).ReadAsArray()
+        self.centerline_array = r.GetRasterBand(1).ReadAsArray(buf_type=gdal.GDT_Int8)
         # remove cells where DEM is null
-        self.centerline_array = np.where(np.isnan(self.dem_array), np.nan, self.centerline_array)
+        self.centerline_array = np.where(np.isnan(self.dem_array), 0, self.centerline_array)
         # get coordinates and DEM elevation at river pixels
         self.river_indices = np.where(self.centerline_array == 1)
         self.river_coords = self.ix2coords(self.river_indices)
@@ -374,9 +375,7 @@ class REMMaker(object):
             self.k = self.estimate_k()
         logging.info(f"Using k = {self.k} nearest neighbors.")
         # coords to interpolate over (don't interpolate where DEM is null or on centerline where REM = 0)
-        interp_indices = np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))
-        logging.info("Getting coords of points to interpolate.")
-        c_interpolate = self.ix2coords(interp_indices)
+        interp_indices = np.array(np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1))), dtype=np.uint32)
         # create 2D tree
         logging.info("Constructing tree.")
         tree = KDTree(self.river_coords)
@@ -385,20 +384,22 @@ class REMMaker(object):
         logging.info("Chunking query...")
         chunk_size = 1e6
         # iterate over chunks
-        chunk_count = c_interpolate.shape[0] // chunk_size + 1
+        chunk_count = interp_indices.shape[1] // chunk_size + 1
         interpolated_values = np.array([])
-        for i, chunk in enumerate(np.array_split(c_interpolate, chunk_count)):
+        for i, chunk in enumerate(np.array_split(interp_indices, chunk_count, axis=1)):
+            chunk = self.ix2coords(chunk)
             logging.info(f"{i / chunk_count * 100:.2f}%")
             distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
             # interpolate (IDW with power = 1)
             weights = 1 / distances  # weight river elevations by 1 / distance
             weights = weights / weights.sum(axis=1).reshape(-1, 1)  # normalize weights
             interpolated_values = np.append(interpolated_values, (weights * self.river_wses[indices]).sum(axis=1))
+
         # create interpolated WSE array as elevations along centerline, nans everywhere else
         logging.info("Created interpolated WSE array.")
         self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
         # add the interpolated eleation values
-        self.wse_interp_array[interp_indices] = interpolated_values
+        self.wse_interp_array[*interp_indices] = interpolated_values
         return
 
     def detrend_dem(self):
@@ -434,11 +435,11 @@ class REMMaker(object):
         self.clean_up()
         return self.rem_ras
 
-    def make_rem_viz(self, cmap='mako_r', z=4, blend_percent=25, make_png=True, make_kmz=False, *args, **kwargs):
+    def make_rem_viz(self, cmap='topo', z=4, blend_percent=25, make_png=True, make_kmz=False, *args, **kwargs):
         """Create REM visualization by blending the REM color-relief with a DEM hillshade to make a pretty finished
         product.
 
-        :param cmap: name of matplotlib/seaborn named colormap to use for REM coloring
+        :param cmap: name of matplotlib/seaborn/cmocean named colormap to use for REM coloring
                      (see https://matplotlib.org/stable/gallery/color/colormap_reference.html). Note the applied
                      colormap is logarithmically scaled in order to emphasize elevations differences close to the river
                      centerline.
