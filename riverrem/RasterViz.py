@@ -6,6 +6,7 @@ from osgeo import osr
 import requests
 import subprocess
 import seaborn as sn
+import cmocean
 import numpy as np
 import time
 start = time.time()  # track time for script to finish
@@ -464,8 +465,19 @@ class RasterViz(object):
         else:
             # sample 255 linearly spaced elevation values
             elevations = np.linspace(min_elev, max_elev, 255)
-        # matplotlib cmap function maps [0-255] input to RGB values [0-1]
-        cm_mpl = sn.color_palette(cmap, as_cmap=True)
+        if isinstance(cmap, str):
+            try:
+                # cm_mpl is a function mapping [0-255] input to (R, G, B, A) tuples [0-1]
+                cm_mpl = sn.color_palette(cmap, as_cmap=True)
+            except ValueError:
+                pass
+            try:
+                cm_mpl = getattr(cmocean.cm, cmap)
+            except AttributeError:
+                raise ValueError(f'Unknown colormap name: \'{cmap}\'. '
+                                 f'Use a colormap name from matplotlib, seaborn, or cmocean.')
+        else:
+            cm_mpl = cmap
         # convert output RGB colors on [0-1] range to [1-255] range used by gdaldem (reserving 0 for nodata)
         cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
         # make cmap text file to be read by gdaldem color-relief
