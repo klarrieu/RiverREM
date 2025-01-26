@@ -69,7 +69,7 @@ conda env create -n rem_env --file environment.yml
    # create an REM
    rem_maker.make_rem()
    # create an REM visualization with the given colormap
-   rem_maker.make_rem_viz(cmap='mako_r')
+   rem_maker.make_rem_viz(cmap='topo')
    ```
 
 Options for adjusting colormaps, shading, interpolation parameters, and more are detailed in the [documentation](https://opentopography.github.io/RiverREM/).
