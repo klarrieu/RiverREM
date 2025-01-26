@@ -16,7 +16,6 @@ import time
 from riverrem.RasterViz import RasterViz
 import logging
 
-
 level = logging.INFO
 fmt = '[%(levelname)s] %(asctime)s - %(message)s'
 logging.basicConfig(level=level, format=fmt)
@@ -110,12 +109,15 @@ class REMMaker(object):
     :type eps: float
     :param workers: number of CPU threads to use for interpolation. -1 uses all threads.
     :type workers: int
+    :param chunk_size: how many raster cells to process through KD tree per chunk.
+                       Higher values run faster but use more RAM.
+    :type chunk_size: int
     :param cache_dir: cache directory
     :type cache_dir: str
 
     """
     def __init__(self, dem, centerline_shp=None, out_dir='./',
-                 interp_pts=1000, k=None, eps=0.1, workers=os.cpu_count()//2, cache_dir='./.cache'):
+                 interp_pts=1000, k=None, eps=0.1, workers=os.cpu_count()//2, chunk_size=1e6, cache_dir='./.cache'):
         self.dem = dem
         self.dem_name = os.path.basename(dem).split('.')[0]
         self.centerline_shp = centerline_shp
@@ -126,6 +128,7 @@ class REMMaker(object):
         self.k = int(k) if k else None
         self.eps = float(eps)
         self.workers = int(workers)
+        self.chunk_size = chunk_size
         self.rem_ras = None
 
     @property
@@ -374,21 +377,23 @@ class REMMaker(object):
         if not self.k:
             self.k = self.estimate_k()
         logging.info(f"Using k = {self.k} nearest neighbors.")
-        # coords to interpolate over (don't interpolate where DEM is null or on centerline where REM = 0)
-        interp_indices = np.array(np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1))), dtype=np.uint32)
         # create 2D tree
         logging.info("Constructing tree.")
         tree = KDTree(self.river_coords)
         # find k nearest neighbors
         logging.info("Querying tree.")
         logging.info("Chunking query...")
-        chunk_size = 1e6
         # iterate over chunks
-        chunk_count = interp_indices.shape[1] // chunk_size + 1
+        chunk_rows = int(self.chunk_size // self.dem_array.shape[0] + 1)
         interpolated_values = np.array([])
-        for i, chunk in enumerate(np.array_split(interp_indices, chunk_count, axis=1)):
-            chunk = self.ix2coords(chunk)
-            logging.info(f"{i / chunk_count * 100:.2f}%")
+        for start_row in range(0, self.dem_array.shape[0], chunk_rows):
+            end_row = min(start_row + chunk_rows, self.dem_array.shape[0])
+            dem_chunk = self.dem_array[start_row: end_row]
+            centerline_chunk = self.centerline_array[start_row: end_row]
+            chunk_indices = np.where(~(np.isnan(dem_chunk) | (centerline_chunk == 1)))
+            global_indices = (chunk_indices[0] + start_row, chunk_indices[1])
+            chunk = self.ix2coords(global_indices)
+            logging.info(f"{start_row / self.dem_array.shape[0] * 100:.2f}%")
             distances, indices = tree.query(chunk, k=self.k, eps=self.eps, workers=self.workers)
             # interpolate (IDW with power = 1)
             weights = 1 / distances  # weight river elevations by 1 / distance
@@ -399,7 +404,7 @@ class REMMaker(object):
         logging.info("Created interpolated WSE array.")
         self.wse_interp_array = np.where(self.centerline_array == 1, self.dem_array, np.nan)
         # add the interpolated eleation values
-        self.wse_interp_array[*interp_indices] = interpolated_values
+        self.wse_interp_array[np.where(~(np.isnan(self.dem_array) | (self.centerline_array == 1)))] = interpolated_values
         return
 
     def detrend_dem(self):
