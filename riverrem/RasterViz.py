@@ -18,7 +18,7 @@ This script can be called from Python using its class/methods or as a CLI utilit
 CLI Usage:
 
 "python RasterViz.py viz_type [-z (default=1)] [-alt (default=45)] [-azim (default=315)] [-multidirectional] 
-    [-cmap (default=terrain)] [-out_ext tif | img (default=tif)] [-make_png] [-make_kmz] [-docker] [-shell] 
+    [-cmap (default=topo)] [-out_ext tif | img (default=tif)] [-make_png] [-make_kmz] [-docker] [-shell] 
     /path/to/dem"
 
 Options:
@@ -38,7 +38,7 @@ Options:
     -multidirectional: only if using "hillshade" or "hillshade-color" viz_type. 
                        Makes multidirectional hillshade, overriding alt and azim args.
     
-    -cmap: only if using "color-relief" viz_type, name of a matplotlib or seaborn colormap. Default "terrain".
+    -cmap: only if using "color-relief" viz_type, name of a matplotlib, seaborn, or cmocean colormap. Default "topo".
            (see https://matplotlib.org/stable/gallery/color/colormap_reference.html)
     
     -out_ext: the extension/file format to use for geodata outputs (tif or img). Default "tif".
@@ -360,7 +360,7 @@ class RasterViz(object):
         return out_path
 
     @_png_kmz_checker
-    def make_color_relief(self, cmap='terrain', log_scale=False, *args, **kwargs):
+    def make_color_relief(self, cmap='topo', log_scale=False, *args, **kwargs):
         """Make color relief map from DEM (3 band RGB raster).
 
         :param cmap: matplotlib or seaborn named colormap to use for making color relief map.
@@ -376,7 +376,7 @@ class RasterViz(object):
         print(f"\nMaking color relief map with cmap={cmap}.")
         temp_path = self.intermediate_rasters["color-relief"]
         out_path = self.color_relief_ras
-        cmap_txt = self.get_cmap_txt(cmap, log_scale=log_scale)
+        cmap_txt = self._get_cmap_txt(cmap, log_scale=log_scale)
         if self.shell:
             cmd = f"{self.drun}gdaldem color-relief {self.dp}{self.dem} {self.dp}{cmap_txt} {self.dp}{temp_path} " \
                     f"-of {self.out_format}"
@@ -448,7 +448,28 @@ class RasterViz(object):
             blend_ras.GetRasterBand(i+1).WriteArray(blended_band)
         return blend_ras_name
 
-    def get_cmap_txt(self, cmap='terrain', log_scale=False):
+    @staticmethod
+    def _get_cm_mpl(cmap):
+        """Get colormap function from cmap name"""
+        if isinstance(cmap, str):
+            try:
+                # cm_mpl is a function mapping [0-255] input to (R, G, B, A) tuples [0-1]
+                cm_mpl = sn.color_palette(cmap, as_cmap=True)
+                return cm_mpl
+            except ValueError:
+                pass
+            try:
+                cm_mpl = getattr(cmocean.cm, cmap)
+                return cm_mpl
+            except AttributeError:
+                raise ValueError(f'Unknown colormap name: \'{cmap}\'. '
+                                 f'Use a colormap name from matplotlib, seaborn, or cmocean.')
+        else:
+            # if not str, assume we are given a valid cmap function
+            cm_mpl = cmap
+            return cm_mpl
+
+    def _get_cmap_txt(self, cmap='topo', log_scale=False):
         """Make a matplotlib named colormap into a gdaldem colormap text file for color-relief mapping.
         Format is "elevation R G B" where RGB are in [0-255] range.
 
@@ -465,19 +486,7 @@ class RasterViz(object):
         else:
             # sample 255 linearly spaced elevation values
             elevations = np.linspace(min_elev, max_elev, 255)
-        if isinstance(cmap, str):
-            try:
-                # cm_mpl is a function mapping [0-255] input to (R, G, B, A) tuples [0-1]
-                cm_mpl = sn.color_palette(cmap, as_cmap=True)
-            except ValueError:
-                pass
-            try:
-                cm_mpl = getattr(cmocean.cm, cmap)
-            except AttributeError:
-                raise ValueError(f'Unknown colormap name: \'{cmap}\'. '
-                                 f'Use a colormap name from matplotlib, seaborn, or cmocean.')
-        else:
-            cm_mpl = cmap
+        cm_mpl = self._get_cm_mpl(cmap)
         # convert output RGB colors on [0-1] range to [1-255] range used by gdaldem (reserving 0 for nodata)
         cm = lambda x: [val * 254 + 1 for val in cm_mpl(x)[:3]]
         # make cmap text file to be read by gdaldem color-relief
