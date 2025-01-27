@@ -8,7 +8,7 @@ RiverREM is a Python package for automatically generating river relative elevati
 
 For more information on REMs and this project see [this OpenTopography blog post](https://opentopography.org/blog/new-package-automates-river-relative-elevation-model-rem-generation).
 
-![neches_REM](docs/pics/neches_topo_crop.jpg)
+![neches_REM](docs/_images/neches_topo_crop.jpg)
 
 ## Installation
 
@@ -74,7 +74,7 @@ conda env create -n rem_env --file environment.yml
 
 Options for adjusting colormaps, shading, interpolation parameters, and more are detailed in the [documentation](https://opentopography.github.io/RiverREM/).
 
-![yukon_flats_REM](docs/pics/yukon_crop.png)
+![yukon_flats_REM](docs/_images/yukon_crop.png)
 
 ## Troubleshooting
 
@@ -96,4 +96,4 @@ This is the OpenTopography fork of https://github.com/klarrieu/RiverREM by Kenne
 - The team at [OpenTopography](https://opentopography.org/) for supporting this effort under the following U.S. National Science Foundation award numbers: 1948997, 1948994, 1948857.
 
 
-![birch_creek_REM](docs/pics/birch_crop.png)
+![birch_creek_REM](docs/_images/birch_crop.png)

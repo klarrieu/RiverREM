@@ -1,9 +1,3 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
 # -- Path setup --------------------------------------------------------------
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -15,17 +9,22 @@ import sys
 sys.path.insert(0, os.path.abspath('../../'))
 
 autodoc_mock_imports = ['gdal']
+
+# Configuration file for the Sphinx documentation builder.
+#
+# For the full list of built-in configuration values, see the documentation:
+# https://www.sphinx-doc.org/en/master/usage/configuration.html
+
 # -- Project information -----------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'RiverREM'
-copyright = '2022, Kenneth Larrieu'
+copyright = '2025, Kenneth Larrieu'
 author = 'Kenneth Larrieu'
-
-# The full version, including alpha/beta/rc tags
-release = '0.0.1'
-
+release = '1.1.0'
 
 # -- General configuration ---------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
@@ -36,23 +35,24 @@ extensions = [
     'sphinx.ext.autodoc',
 ]
 
-# Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
-
-# List of patterns, relative to source directory, that match files and
-# directories to ignore when looking for source files.
-# This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
 
+
 # -- Options for HTML output -------------------------------------------------
+# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-# The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
-#
-html_theme = 'sphinx_rtd_theme'
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
+html_theme = 'pydata_sphinx_theme'
 html_static_path = ['_static']
+
+
+# General configuration
+html_theme_options = {'icon_links':  [{'name': 'GitHub', 
+								     'url': 'https://github.com/OpenTopography/RiverREM',
+								     'icon': 'fa-brands fa-square-github',
+								     'type': 'fontawesome'}],
+					   'external_links': [
+					   	{'name': 'OpenTopography',
+					   	'url': 'https://opentopography.org'}]}
+

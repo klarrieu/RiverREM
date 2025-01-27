@@ -15,6 +15,8 @@ from itertools import combinations
 import time
 from riverrem.RasterViz import RasterViz
 import logging
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 level = logging.INFO
 fmt = '[%(levelname)s] %(asctime)s - %(message)s'
@@ -453,6 +455,12 @@ class REMMaker(object):
         :type z: float >1
         :param blend_percent: Percent weight of hillshdae in blended image, color-relief takes opposite weight.
         :type blend_percent: float [0-100]
+        :param make_png: Specify whether to make a georeferenced png image of the visualization
+            in addition to a GeoTIFF.
+        :type make_png: bool
+        :param make_kmz: Specify whether to make a kmz file of the visualization (e.g. for Google Earth)
+            in addition to a GeoTIFF.
+        :type make_kmz: bool
 
         :returns: path to output raster
         :rtype: str
