@@ -213,7 +213,7 @@ class RasterViz(object):
 
     def _check_dem_nodata(self):
         """Check that input DEM has a NoData value set. If not, set to zero."""
-        r = gdal.Open(self._dem, gdal.GA_Update)
+        r = gdal.Open(self._dem, gdal.GA_ReadOnly)
         band = r.GetRasterBand(1)
         if band.GetNoDataValue() is None:
             print("WARNING: NoData value not found for input DEM. Assuming NoData value is 0.")
