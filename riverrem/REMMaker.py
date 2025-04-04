@@ -85,7 +85,7 @@ def clear_osm_cache():
                 filepath = os.path.join(dir, f)
                 os.remove(filepath)
     except Exception as e:
-        raise Exception("Could not clear ./.osm_cache.", e)
+        raise IOError("Could not clear ./.osm_cache.", e)
     return
 
 class REMMaker(object):
@@ -325,6 +325,9 @@ class REMMaker(object):
         logging.info('Using input centerline shapefile.')
         self.rivers = read_file(self.centerline_shp).to_crs(epsg=self.epsg_code)
         self.rivers = clip(self.rivers, box(*self.extent))
+        if len(self.rivers) == 0:
+            raise IOError("No centerlines found in shapefile overlapping with DEM extent. "
+                          "Ensure both files have properly assigned coordinate systems.")
         self.river_length = self.rivers.length.sum()
         self.lines2pts()
         self.make_river_shp()
