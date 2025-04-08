@@ -5,7 +5,7 @@ Source code: `https://github.com/OpenTopography/RiverREM <https://github.com/Ope
 
 OT blog post:  `link <https://opentopography.org/blog/new-package-automates-river-relative-elevation-model-rem-generation>`_
 
-.. image:: ../pics/neches_topo_crop.jpg
+.. image:: ../_images/neches_topo_crop.jpg
 
 
 
