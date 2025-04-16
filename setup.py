@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="RiverREM",
-    version="1.1.1",
+    version="1.1.2",
     author="Kenneth Larrieu",
     author_email="kennylarrieu@gmail.com",
     description="Make river relative elevation models (REM) and REM visualizations from an input digital elevation model (DEM).",
