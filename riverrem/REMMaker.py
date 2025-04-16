@@ -487,10 +487,11 @@ class REMMaker(object):
         return viz_ras
 
     def clean_up(self):
-        for dir, subdirs, files in os.walk(self.cache_dir):
-            for f in files:
+        suffixes = ('_centerline.tif', '_hillshade.tif', '_color-relief.png', '_color-relief.png.aux.xml', '_color-relief.tif')
+        for f in os.listdir(self.cache_dir):
+            if f.endswith(suffixes):
                 try:
-                    filepath = os.path.join(dir, f)
+                    filepath = os.path.join(self.cache_dir, f)
                     os.remove(filepath)
                 except:
                     logging.warning(f"Cannot delete cache file {filepath}.")
