@@ -338,7 +338,7 @@ class REMMaker(object):
         # gdal_rasterize centerline
         self.centerline_ras = os.path.join(self.cache_dir, f"{self.dem_name}_centerline.tif")
         extent = f"-te {' '.join(map(str, self.extent))}"
-        res = f"-tr {self.cell_w} {self.cell_h}"
+        res = f"-tr {abs(self.cell_w)} {abs(self.cell_h)}"
         gdal.Rasterize(self.centerline_ras, self.river_shp, options=f"-a id {extent} {res}")
         # raster to numpy array same shape as DEM
         r = gdal.Open(self.centerline_ras, gdal.GA_ReadOnly)
